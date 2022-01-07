@@ -40,6 +40,11 @@ namespace Phoenix.Api.Ardea.Pullers
             int p = 0;
             foreach (var schoolUqPair in SchoolUqsDict)
             {
+                filteredPosts = clientPosts.FilterPostsForSchool(schoolUqPair.Value);
+
+                Logger.LogInformation("{ClientsNumber} Clients found for School \"{SchoolUq}\"",
+                    filteredPosts.Count(), schoolUqPair.Value.ToString());
+
                 foreach (var clientPost in clientPosts)
                 {
                     var clientAcf = (ClientACF)(await WordPressClientWrapper.GetAcfAsync<ClientACF>(clientPost.Id)).WithTitleCase();

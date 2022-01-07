@@ -42,7 +42,7 @@ namespace Phoenix.Api.Ardea.Pullers
                 Logger.LogInformation("{PersonnelNumber} Staff members found for School \"{SchoolUq}\"",
                     filteredPosts.Count(), schoolUqPair.Value.ToString());
 
-                foreach (var personnelPost in personnelPosts)
+                foreach (var personnelPost in filteredPosts)
                 {
                     var personnelAcf = (PersonnelACF)(await WordPressClientWrapper.GetAcfAsync<PersonnelACF>(personnelPost.Id)).WithTitleCase();
                     personnelAcf.SchoolUnique = schoolUqPair.Value;

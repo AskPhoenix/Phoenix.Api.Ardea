@@ -47,7 +47,7 @@ namespace Phoenix.Api.Ardea.Pullers
                 Logger.LogInformation("{SchedulesNumber} Courses found for School \"{SchoolUq}\"",
                     filteredPosts.Count(), schoolUqPair.Value.ToString());
 
-                foreach (var schedulePost in schedulePosts)
+                foreach (var schedulePost in filteredPosts)
                 {
                     var scheduleAcf = (ScheduleACF)(await WordPressClientWrapper.GetAcfAsync<ScheduleACF>(schedulePost.Id)).WithTitleCase();
                     scheduleAcf.SchoolUnique = schoolUqPair.Value;
