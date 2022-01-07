@@ -1,6 +1,5 @@
 ﻿using Phoenix.DataHandle.Main;
 using Phoenix.DataHandle.Main.Models;
-using Phoenix.DataHandle.Repositories;
 using Phoenix.DataHandle.WordPress;
 using Phoenix.DataHandle.WordPress.Models;
 using Phoenix.DataHandle.WordPress.Models.Uniques;
@@ -9,16 +8,12 @@ using WordPressPCL.Models;
 
 namespace Phoenix.Api.Ardea.Pullers
 {
-    public class PersonnelPuller : WPPuller
+    public class PersonnelPuller : UserPuller
     {
-        private readonly AspNetUserRepository aspNetUserRepository;
-
-        public PersonnelPuller(Dictionary<int, SchoolUnique> schoolUqsDict, Dictionary<int, CourseUnique> courseUqsDict,
+        public PersonnelPuller(Dictionary<int, SchoolUnique> schoolUqsDict, Dictionary<int, CourseUnique> courseUqsDict, 
             PhoenixContext phoenixContext, ILogger logger, SchoolUnique? specificSchoolUq = null, bool verbose = true) 
-            : base(schoolUqsDict, courseUqsDict, logger, specificSchoolUq, verbose)
+            : base(schoolUqsDict, courseUqsDict, phoenixContext, logger, specificSchoolUq, verbose) 
         {
-            this.aspNetUserRepository = new(phoenixContext);
-            this.aspNetUserRepository.Include(u => u.User);
         }
 
         public override int CategoryId => PostCategoryWrapper.GetCategoryId(PostCategory.Personnel);
@@ -106,11 +101,6 @@ namespace Phoenix.Api.Ardea.Pullers
             Logger.LogInformation("----------------------------------");
 
             return updatedIds;
-        }
-
-        public override Task<int[]> DeleteAsync(int[] toKeep)
-        {
-            throw new NotImplementedException();
         }
     }
 }

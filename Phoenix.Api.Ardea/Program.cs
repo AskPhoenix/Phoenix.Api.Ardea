@@ -16,7 +16,7 @@ builder.Services.AddSwaggerGen(o =>
     o.SwaggerDoc("v3", new Microsoft.OpenApi.Models.OpenApiInfo()
     {
         Title = "Ardea API",
-        Description = "A Rest API to synchronize the data from WordPress with Phoenix backend.",
+        Description = "A Rest API to synchronize the data from WordPress with the Phoenix backend.",
         Version = "3.0"
     });
 });

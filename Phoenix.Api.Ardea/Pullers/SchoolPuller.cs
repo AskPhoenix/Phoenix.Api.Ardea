@@ -70,9 +70,38 @@ namespace Phoenix.Api.Ardea.Pullers
             return updatedIds;
         }
 
-        public override Task<int[]> DeleteAsync(int[] toKeep)
+        public override int[] Delete(int[] toKeep)
         {
-            throw new NotImplementedException();
+            Logger.LogInformation("------------------------");
+            Logger.LogInformation("Schools deletion started");
+
+            var toDelete = schoolRepository.Find().Where(s => !toKeep.Contains(s.Id));
+            var deletedIds = new int[toDelete.Count()];
+
+            int p = 0;
+            foreach (var school in toDelete)
+            {
+                if (school.IsDeleted)
+                {
+                    if (Verbose)
+                        Logger.LogInformation("School with id {SchoolId} already deleted", school.Id);
+                    continue;
+                }
+
+                if (Verbose)
+                    Logger.LogInformation("Deleting school with id {SchoolId}", school.Id);
+
+                school.IsDeleted = true;
+                school.DeletedAt = DateTimeOffset.Now;
+                schoolRepository.Update(school);
+
+                deletedIds[p++] = school.Id;
+            }
+
+            Logger.LogInformation("Schools deletion finished");
+            Logger.LogInformation("-------------------------");
+
+            return deletedIds;
         }
     }
 }

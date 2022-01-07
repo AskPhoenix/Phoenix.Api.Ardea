@@ -35,9 +35,9 @@ namespace Phoenix.Api.Ardea.Controllers
         }
 
         [HttpPut("schools")]
-        [SwaggerOperation(Summary = "Synchronize school data in Phoenix backend")]
+        [SwaggerOperation(Summary = "Synchronize schools' data with the Phoenix backend.")]
         [SwaggerResponse(StatusCodes.Status200OK, "Data synchronization finished with no problems.")]
-        [SwaggerResponse(StatusCodes.Status400BadRequest, "Specific school argument is mal-formed.")]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "The \"specific school\" parameter is mal-formed.")]
         public async Task<IActionResult> PutSchoolDataAsync(
             [SwaggerParameter(Description = "Specify only one school to update by its WordPress post title.", Required = false)]
             string? specificSchool = null, 
@@ -71,11 +71,14 @@ namespace Phoenix.Api.Ardea.Controllers
             
             PersonnelPuller personnelPuller = 
                 new(schoolUqsDict, courseUqsDict, _phoenixContext, _logger, specificSchoolUq, verbose);
-            await personnelPuller.PutAsync();
+            var personnelIdsUpdated = await personnelPuller.PullAsync();
 
             ClientPuller clientPuller = 
                 new(schoolUqsDict, courseUqsDict, _phoenixContext, _logger, specificSchoolUq, verbose);
-            await clientPuller.PutAsync();
+            var clientIdsUpdated = await clientPuller.PullAsync();
+
+            // Delete all non-updated users (both personnel and clients) at once, either from personnel or clients puller
+            _ = clientPuller.Delete(personnelIdsUpdated.Concat(clientIdsUpdated).ToArray());
 
             await scheduleTask;
 

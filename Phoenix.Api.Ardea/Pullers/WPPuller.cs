@@ -14,7 +14,7 @@ namespace Phoenix.Api.Ardea.Pullers
         protected ILogger Logger { get; }
         protected bool Verbose { get; }
 
-        public WPPuller(Dictionary<int, SchoolUnique> schoolUqsDict, Dictionary<int, CourseUnique> courseUqsDict,
+        protected WPPuller(Dictionary<int, SchoolUnique> schoolUqsDict, Dictionary<int, CourseUnique> courseUqsDict,
             ILogger logger, SchoolUnique? specificSchoolUq = null, bool verbose = true)
         {
             this.SchoolUqsDict = schoolUqsDict;
@@ -27,17 +27,21 @@ namespace Phoenix.Api.Ardea.Pullers
             this.SpecificSchoolOnly = specificSchoolUq != null;
         }
 
-        public WPPuller(Dictionary<int, SchoolUnique> schoolUqsDict, 
+        protected WPPuller(Dictionary<int, SchoolUnique> schoolUqsDict, 
             ILogger logger, SchoolUnique? specificSchoolUq = null, bool verbose = true)
-        : this(schoolUqsDict, new(0), logger, specificSchoolUq, verbose) { }
+        : this(schoolUqsDict, new(0), logger, specificSchoolUq, verbose) 
+        {
+        }
 
-        public WPPuller(ILogger logger, SchoolUnique? specificSchoolUq = null, bool verbose = true)
-            : this(new(0), logger, specificSchoolUq, verbose) { }
+        protected WPPuller(ILogger logger, SchoolUnique? specificSchoolUq = null, bool verbose = true)
+            : this(new(0), logger, specificSchoolUq, verbose) 
+        {
+        }
 
         public abstract int CategoryId { get; }
 
         public abstract Task<int[]> PullAsync();
-        public abstract Task<int[]> DeleteAsync(int[] toKeep);
+        public abstract int[] Delete(int[] toKeep); // TODO: make async (create async update method in repositories)
         public virtual async Task PutAsync()
         {
             var updatedIds = await PullAsync();
@@ -48,7 +52,7 @@ namespace Phoenix.Api.Ardea.Pullers
                 return;
             }
 
-            _ = await DeleteAsync(updatedIds);
+            _ = Delete(updatedIds);
         }
 
         protected static Dictionary<int, string> FindSchoolTimezones(PhoenixContext phoenixContext, IEnumerable<int> schoolIds)

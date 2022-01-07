@@ -119,11 +119,40 @@ namespace Phoenix.Api.Ardea.Pullers
             return updatedIds;
         }
 
-        public override Task<int[]> DeleteAsync(int[] toKeep)
+        public override int[] Delete(int[] toKeep)
         {
             // Books are never deleted
 
-            throw new NotImplementedException();
+            Logger.LogInformation("------------------------");
+            Logger.LogInformation("Courses deletion started");
+
+            var toDelete = courseRepository.Find().Where(c => !toKeep.Contains(c.Id));
+            var deletedIds = new int[toDelete.Count()];
+
+            int p = 0;
+            foreach (var course in toDelete)
+            {
+                if (course.IsDeleted)
+                {
+                    if (Verbose)
+                        Logger.LogInformation("Course with id {CourseId} already deleted", course.Id);
+                    continue;
+                }
+
+                if (Verbose)
+                    Logger.LogInformation("Deleting course with id {CourseId}", course.Id);
+
+                course.IsDeleted = true;
+                course.DeletedAt = DateTimeOffset.Now;
+                courseRepository.Update(course);
+
+                deletedIds[p++] = course.Id;
+            }
+
+            Logger.LogInformation("Courses deletion finished");
+            Logger.LogInformation("-------------------------");
+
+            return deletedIds;
         }
     }
 }
