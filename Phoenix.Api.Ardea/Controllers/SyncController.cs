@@ -3,6 +3,7 @@ using Phoenix.Api.Ardea.Pullers;
 using Phoenix.DataHandle.Main.Models;
 using Phoenix.DataHandle.WordPress.Models.Uniques;
 using Phoenix.DataHandle.WordPress.Wrappers;
+using Swashbuckle.AspNetCore.Annotations;
 
 namespace Phoenix.Api.Ardea.Controllers
 {
@@ -34,7 +35,14 @@ namespace Phoenix.Api.Ardea.Controllers
         }
 
         [HttpPut("schools")]
-        public async Task<IActionResult> PutSchoolDataAsync(string? specificSchool = null, bool verbose = true)
+        [SwaggerOperation(Summary = "Synchronize school data in Phoenix backend")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Data synchronization finished with no problems.")]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Specific school argument is mal-formed.")]
+        public async Task<IActionResult> PutSchoolDataAsync(
+            [SwaggerParameter(Description = "Specify only one school to update by its WordPress post title.", Required = false)]
+            string? specificSchool = null, 
+            [SwaggerParameter(Description = "Switch between \"verbose\" and \"quiet\" logging.", Required = true)]
+            bool verbose = true)
         {
             SchoolUnique? specificSchoolUq = null;
             try
