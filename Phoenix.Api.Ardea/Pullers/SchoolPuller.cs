@@ -12,17 +12,23 @@ namespace Phoenix.Api.Ardea.Pullers
     {
         private readonly SchoolRepository schoolRepository;
 
+        public SchoolUnique? SpecificSchoolUq { get; }
+        public bool SpecificSchoolOnly { get; }
+
         public SchoolPuller(PhoenixContext phoenixContext, ILogger logger, 
             SchoolUnique? specificSchoolUq = null, bool verbose = true)
-            : base(logger, specificSchoolUq, verbose)
+            : base(logger, verbose)
         {
             this.schoolRepository = new(phoenixContext);
             this.schoolRepository.Include(s => s.SchoolSettings);
+
+            this.SpecificSchoolUq = specificSchoolUq;
+            this.SpecificSchoolOnly = specificSchoolUq != null;
         }
 
         public override int CategoryId => PostCategoryWrapper.GetCategoryId(PostCategory.SchoolInformation);
 
-        public override async Task<int[]> PullAsync()
+        public override async Task<List<int>> PullAsync()
         {
             Logger.LogInformation("-------------------------------");
             Logger.LogInformation("Schools synchronization started");
@@ -31,12 +37,8 @@ namespace Phoenix.Api.Ardea.Pullers
             if (SpecificSchoolOnly)
                 schoolPosts = schoolPosts.FilterPostsForSchool(SpecificSchoolUq!);
 
-            int P = schoolPosts.Count();
-            int[] updatedIds = new int[P];
+            Logger.LogInformation("{SchoolsNumber} Schools found", schoolPosts.Count());
 
-            Logger.LogInformation("{SchoolsNumber} Schools found", P);
-
-            int p = 0;
             foreach (var schoolPost in schoolPosts)
             {
                 SchoolACF schoolAcf = (SchoolACF)(await WordPressClientWrapper.GetAcfAsync<SchoolACF>(schoolPost.Id)).WithTitleCase();
@@ -58,50 +60,39 @@ namespace Phoenix.Api.Ardea.Pullers
                         Logger.LogInformation("Updating School: {SchoolUq}", schoolAcf.SchoolUnique.ToString());
 
                     schoolRepository.Update(school, schoolAcf.ToContext(), schoolAcf.ExtractSchoolSettings());
+                    schoolRepository.Restore(school);
                 }
 
-                updatedIds[p++] = school.Id;
                 SchoolUqsDict.Add(school.Id, schoolAcf.SchoolUnique);
             }
+            
+            PulledIds = SchoolUqsDict.Keys.ToList();
 
             Logger.LogInformation("Schools synchronization finished");
             Logger.LogInformation("--------------------------------");
 
-            return updatedIds;
+            return PulledIds;
         }
 
-        public override int[] Delete(int[] toKeep)
+        public override List<int> Obviate()
         {
-            Logger.LogInformation("------------------------");
-            Logger.LogInformation("Schools deletion started");
-
-            var toDelete = schoolRepository.Find().Where(s => !toKeep.Contains(s.Id));
-            var deletedIds = new int[toDelete.Count()];
-
-            int p = 0;
-            foreach (var school in toDelete)
+            if (SpecificSchoolOnly)
             {
-                if (school.IsDeleted)
-                {
-                    if (Verbose)
-                        Logger.LogInformation("School with id {SchoolId} already deleted", school.Id);
-                    continue;
-                }
-
-                if (Verbose)
-                    Logger.LogInformation("Deleting school with id {SchoolId}", school.Id);
-
-                school.IsDeleted = true;
-                school.DeletedAt = DateTimeOffset.Now;
-                schoolRepository.Update(school);
-
-                deletedIds[p++] = school.Id;
+                Logger.LogWarning("Schools obviation skipped due to specific school mode");
+                return new();
             }
 
-            Logger.LogInformation("Schools deletion finished");
+            Logger.LogInformation("------------------------");
+            Logger.LogInformation("Schools obviation started");
+
+            var toObviate = schoolRepository.Find().Where(s => !SchoolUqsDict.ContainsKey(s.Id));
+
+            ObviatedIds = ObviateGroup<School>(toObviate, schoolRepository);
+
+            Logger.LogInformation("Schools obviation finished");
             Logger.LogInformation("-------------------------");
 
-            return deletedIds;
+            return ObviatedIds;
         }
     }
 }

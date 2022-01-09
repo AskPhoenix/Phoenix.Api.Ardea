@@ -12,14 +12,14 @@ namespace Phoenix.Api.Ardea.Pullers
     public class ClientPuller : UserPuller
     {
         public ClientPuller(Dictionary<int, SchoolUnique> schoolUqsDict, Dictionary<int, CourseUnique> courseUqsDict, 
-            PhoenixContext phoenixContext, ILogger logger, SchoolUnique? specificSchoolUq = null, bool verbose = true) 
-            : base(schoolUqsDict, courseUqsDict, phoenixContext, logger, specificSchoolUq, verbose)
+            PhoenixContext phoenixContext, ILogger logger, bool verbose = true) 
+            : base(schoolUqsDict, courseUqsDict, phoenixContext, logger, verbose)
         {
         }
 
         public override int CategoryId => PostCategoryWrapper.GetCategoryId(PostCategory.Client);
 
-        public override async Task<int[]> PullAsync()
+        public override async Task<List<int>> PullAsync()
         {
             Logger.LogInformation("------------------------------------------");
             Logger.LogInformation("Students & Parents synchronization started");
@@ -27,10 +27,6 @@ namespace Phoenix.Api.Ardea.Pullers
             IEnumerable<Post> clientPosts = await WordPressClientWrapper.GetPostsAsync(CategoryId);
             IEnumerable<Post> filteredPosts;
 
-            int P = clientPosts.Count();
-            int[] updatedIds = new int[P];
-
-            int p = 0;
             foreach (var schoolUqPair in SchoolUqsDict)
             {
                 filteredPosts = clientPosts.FilterPostsForSchool(schoolUqPair.Value);
@@ -38,7 +34,7 @@ namespace Phoenix.Api.Ardea.Pullers
                 Logger.LogInformation("{ClientsNumber} Clients found for School \"{SchoolUq}\"",
                     filteredPosts.Count(), schoolUqPair.Value.ToString());
 
-                foreach (var clientPost in clientPosts)
+                foreach (var clientPost in filteredPosts)
                 {
                     var clientAcf = (ClientACF)(await WordPressClientWrapper.GetAcfAsync<ClientACF>(clientPost.Id)).WithTitleCase();
                     clientAcf.SchoolUnique = schoolUqPair.Value;
@@ -81,12 +77,16 @@ namespace Phoenix.Api.Ardea.Pullers
                                     i+1, parentPhoneString);
 
                             aspNetUserRepository.Update(parent, parents[i], parentUsers[i]);
+                            aspNetUserRepository.Restore(parent);
+
                             if (!aspNetUserRepository.HasRole(parent, Role.Parent))
                                 aspNetUserRepository.LinkRole(parent, Role.Parent);
                         }
 
                         parentIds.Add(parent.Id);
                     }
+
+                    PulledIds.AddRange(parentIds);
 
                     AspNetUsers student = null!;
                     if (clientAcf.IsSelfDetermined)
@@ -120,7 +120,7 @@ namespace Phoenix.Api.Ardea.Pullers
                     else
                     {
                         if (Verbose)
-                            Logger.LogInformation("Adding Student with {ParentStr}phone number: {PhoneNumber}",
+                            Logger.LogInformation("Updating Student with {ParentStr}phone number: {PhoneNumber}",
                                 (clientAcf.IsSelfDetermined) ? "" : "parent ", clientAcf.TopPhoneNumber);
 
                         var updatedUser = clientAcf.ExtractUser();
@@ -128,13 +128,14 @@ namespace Phoenix.Api.Ardea.Pullers
                         aspNetUserFrom.UserName = ClientACF.GetUserName(updatedUser, schoolUqPair.Key, clientAcf.TopPhoneNumber);
                         aspNetUserFrom.NormalizedUserName = aspNetUserFrom.UserName.ToUpperInvariant();
 
-                        this.aspNetUserRepository.Update(student, aspNetUserFrom, updatedUser);
+                        aspNetUserRepository.Update(student, aspNetUserFrom, updatedUser);
+                        aspNetUserRepository.Restore(student);
                         
                         if (!aspNetUserRepository.HasRole(student, Role.Student))
                             this.aspNetUserRepository.LinkRole(student, Role.Student);
                     }
 
-                    updatedIds[p++] = student.Id;
+                    PulledIds.Add(student.Id);
 
                     foreach (int parId in parentIds)
                     {
@@ -163,7 +164,7 @@ namespace Phoenix.Api.Ardea.Pullers
                 Logger.LogInformation("-------------------------------------------");
             }
 
-            return updatedIds;
+            return PulledIds = PulledIds.Distinct().ToList();
         }
     }
 }

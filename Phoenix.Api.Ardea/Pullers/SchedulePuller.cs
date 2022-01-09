@@ -13,26 +13,32 @@ namespace Phoenix.Api.Ardea.Pullers
     {
         private readonly ScheduleRepository scheduleRepository;
         private readonly ClassroomRepository classroomRepository;
+        private readonly SchoolRepository schoolRepository;
+        private readonly CourseRepository courseRepository;
 
         private readonly Dictionary<int, string> schoolTimezonesDict;
 
-        public List<int> UpdatedClassroomIds { get; private set; }
+        public List<int> PulledClassroomIds { get; private set; }
+        public List<int> ObviatedClassroomIds { get; private set; }
 
         public SchedulePuller(Dictionary<int, SchoolUnique> schoolUqsDict, Dictionary<int, CourseUnique> courseUqsDict, 
-            PhoenixContext phoenixContext, ILogger logger, SchoolUnique? specificSchoolUq = null, bool verbose = true) 
-            : base(schoolUqsDict, courseUqsDict, logger, specificSchoolUq, verbose)
+            PhoenixContext phoenixContext, ILogger logger, bool verbose = true) 
+            : base(schoolUqsDict, courseUqsDict, logger, verbose)
         {
             this.scheduleRepository = new(phoenixContext);
             this.classroomRepository = new(phoenixContext);
+            this.schoolRepository = new(phoenixContext);
+            this.courseRepository = new(phoenixContext);
 
             this.schoolTimezonesDict = FindSchoolTimezones(phoenixContext, schoolUqsDict.Keys);
 
-            this.UpdatedClassroomIds = new List<int>();
+            this.PulledClassroomIds = new List<int>();
+            this.ObviatedClassroomIds = new List<int>();
         }
 
         public override int CategoryId => PostCategoryWrapper.GetCategoryId(PostCategory.Schedule);
 
-        public override async Task<int[]> PullAsync()
+        public override async Task<List<int>> PullAsync()
         {
             Logger.LogInformation("----------------------------------------------");
             Logger.LogInformation("Schedules & Classrooms synchronization started");
@@ -40,15 +46,11 @@ namespace Phoenix.Api.Ardea.Pullers
             IEnumerable<Post> schedulePosts = await WordPressClientWrapper.GetPostsAsync(CategoryId);
             IEnumerable<Post> filteredPosts;
 
-            int P = schedulePosts.Count();
-            int[] updatedIds = new int[P];
-
-            int p = 0;
             foreach (var schoolUqPair in SchoolUqsDict)
             {
                 filteredPosts = schedulePosts.FilterPostsForSchool(schoolUqPair.Value);
 
-                Logger.LogInformation("{SchedulesNumber} Courses found for School \"{SchoolUq}\"",
+                Logger.LogInformation("{SchedulesNumber} Schedules found for School \"{SchoolUq}\"",
                     filteredPosts.Count(), schoolUqPair.Value.ToString());
 
                 foreach (var schedulePost in filteredPosts)
@@ -64,9 +66,7 @@ namespace Phoenix.Api.Ardea.Pullers
                     if (!string.IsNullOrEmpty(scheduleAcf.ClassroomName))
                     {
                         classroom = classroomRepository.Find(schoolUqPair.Key, scheduleAcf.ClassroomName);
-                        if (UpdatedClassroomIds.Contains(classroom.Id))
-                            continue;
-
+                        
                         if (classroom is null)
                         {
                             if (Verbose)
@@ -83,11 +83,11 @@ namespace Phoenix.Api.Ardea.Pullers
                         else
                         {
                             if (Verbose)
-                                Logger.LogInformation("Classroom {ClassroomName} with id {ClassroomId} already exists in School \"{SchoolUq}\"",
-                                    classroom.Name, classroom.Id, schoolUqPair.ToString());
+                                Logger.LogInformation("Classroom {ClassroomName} already exists in School \"{SchoolUq}\"",
+                                    classroom.Name, schoolUqPair.ToString());
                         }
-
-                        UpdatedClassroomIds.Add(classroom.Id);
+                        
+                        PulledClassroomIds.Add(classroom.Id);
                     }
 
                     var schedule = await this.scheduleRepository.Find(scheduleAcf.MatchesUnique);
@@ -97,9 +97,20 @@ namespace Phoenix.Api.Ardea.Pullers
                             Logger.LogInformation("Adding Schedule: {SchedulePostTitle}", schedulePost.GetTitle());
 
                         schedule = scheduleAcf.ToContext();
-                        schedule.CourseId = CourseUqsDict.Single(kv => kv.Value == courseUq).Key;
                         schedule.ClassroomId = classroom?.Id;
+                        try
+                        {
+                            schedule.CourseId = CourseUqsDict.Single(kv => kv.Value == courseUq).Key;
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            Logger.LogError("There is no course with code {CourseCode} in School \"{SchoolUq}\"",
+                                courseUq.Code, courseUq.SchoolUnique);
+                            Logger.LogError("Schedule {SchedulePostTitle} is skipped", schedulePost.GetTitle());
 
+                            continue;
+                        }
+                        
                         scheduleRepository.Create(schedule);
                     }
                     else
@@ -111,91 +122,47 @@ namespace Phoenix.Api.Ardea.Pullers
                         scheduleFrom.ClassroomId = classroom?.Id;
 
                         scheduleRepository.Update(schedule, scheduleFrom);
+                        scheduleRepository.Restore(schedule);
                     }
 
-                    updatedIds[p++] = schedule.Id;
+                    PulledIds.Add(schedule.Id);
                 }
             }
 
             Logger.LogInformation("Schedules & Classrooms synchronization finished");
             Logger.LogInformation("-----------------------------------------------");
 
-            return updatedIds;
+            PulledClassroomIds = PulledClassroomIds.Distinct().ToList();
+            return PulledIds = PulledIds.Distinct().ToList();
         }
 
-        public override int[] Delete(int[] toKeep)
-        {
-            Logger.LogInformation("------------------------");
-            Logger.LogInformation("Schedules deletion started");
-
-            var toDelete = scheduleRepository.Find().Where(s => !toKeep.Contains(s.Id));
-            var deletedIds = new int[toDelete.Count()];
-
-            int p = 0;
-            foreach (var schedule in toDelete)
-            {
-                if (schedule.IsDeleted)
-                {
-                    if (Verbose)
-                        Logger.LogInformation("Schedule with id {ScheduleId} already deleted", schedule.Id);
-                    continue;
-                }
-
-                if (Verbose)
-                    Logger.LogInformation("Deleting schedule with id {ScheduleId}", schedule.Id);
-
-                schedule.IsDeleted = true;
-                schedule.DeletedAt = DateTimeOffset.Now;
-                scheduleRepository.Update(schedule);
-
-                deletedIds[p++] = schedule.Id;
-            }
-
-            Logger.LogInformation("Schedules deletion finished");
-            Logger.LogInformation("-------------------------");
-
-            return deletedIds;
-        }
-
-        public int[] DeleteClassrooms()
+        public override List<int> Obviate()
         {
             Logger.LogInformation("---------------------------");
-            Logger.LogInformation("Classrooms deletion started");
+            Logger.LogInformation("Schedules obviation started");
 
-            var toDelete = classroomRepository.Find().Where(c => !UpdatedClassroomIds.Contains(c.Id));
-            var deletedIds = new int[toDelete.Count()];
-
-            int p = 0;
-            foreach (var classroom in toDelete)
+            foreach (var schoolUqPair in SchoolUqsDict)
             {
-                if (classroom.IsDeleted)
+                Logger.LogInformation("Obviation of schedules for courses of school \"{SchoolUq}\"", schoolUqPair.Value);
+
+                var schoolCoursesUqsDict = CourseUqsDict.Where(kv => kv.Value.SchoolUnique == schoolUqPair.Value);
+                foreach (var courseUqPair in schoolCoursesUqsDict)
                 {
-                    if (Verbose)
-                        Logger.LogInformation("Classroom with id {ClassroomId} already deleted", classroom.Id);
-                    continue;
+                    Logger.LogInformation("Obviation of schedules for course with code {CourseCode}", courseUqPair.Value.Code);
+
+                    var toObviate = courseRepository.FindSchedules(courseUqPair.Key).Where(s => !PulledIds.Contains(s.Id));
+
+                    ObviatedIds.AddRange(ObviateGroup<Schedule>(toObviate, scheduleRepository));
                 }
-
-                if (Verbose)
-                    Logger.LogInformation("Deleting classroom with id {ClassroomId}", classroom.Id);
-
-                classroom.IsDeleted = true;
-                classroom.DeletedAt = DateTimeOffset.Now;
-                classroomRepository.Update(classroom);
-
-                deletedIds[p++] = classroom.Id;
             }
 
-            Logger.LogInformation("Classrooms deletion finished");
+            Logger.LogInformation("Schedules obviation finished");
             Logger.LogInformation("----------------------------");
 
-            return deletedIds;
-        }
+            ObviatedClassroomIds = ObviateForSchools<Classroom>(
+                schoolRepository.FindClassrooms, classroomRepository, PulledClassroomIds);
 
-        public override async Task PutAsync()
-        {
-            await base.PutAsync();
-
-            _ = DeleteClassrooms();
+            return ObviatedIds;
         }
     }
 }

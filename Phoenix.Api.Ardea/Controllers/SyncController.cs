@@ -59,26 +59,19 @@ namespace Phoenix.Api.Ardea.Controllers
             await schoolPuller.PutAsync();
             var schoolUqsDict = schoolPuller.SchoolUqsDict;
 
-            CoursePuller coursePuller = 
-                new(schoolUqsDict, _phoenixContext, _logger, specificSchoolUq, verbose);
+            CoursePuller coursePuller = new(schoolUqsDict, _phoenixContext, _logger, verbose);
             await coursePuller.PutAsync();
             var courseUqsDict = coursePuller.CourseUqsDict;
 
-            SchedulePuller schedulePuller = 
-                new(schoolUqsDict, courseUqsDict, _phoenixContext, _logger, specificSchoolUq, verbose);
+            SchedulePuller schedulePuller = new(schoolUqsDict, courseUqsDict, _phoenixContext, _logger, verbose);
             // The schedule task starts asynchronously and is not affected by the following await operations
             var scheduleTask = schedulePuller.PutAsync();
             
-            PersonnelPuller personnelPuller = 
-                new(schoolUqsDict, courseUqsDict, _phoenixContext, _logger, specificSchoolUq, verbose);
-            var personnelIdsUpdated = await personnelPuller.PullAsync();
+            PersonnelPuller personnelPuller = new(schoolUqsDict, courseUqsDict, _phoenixContext, _logger, verbose);
+            await personnelPuller.PutAsync();
 
-            ClientPuller clientPuller = 
-                new(schoolUqsDict, courseUqsDict, _phoenixContext, _logger, specificSchoolUq, verbose);
-            var clientIdsUpdated = await clientPuller.PullAsync();
-
-            // Delete all non-updated users (both personnel and clients) at once, either from personnel or clients puller
-            _ = clientPuller.Delete(personnelIdsUpdated.Concat(clientIdsUpdated).ToArray());
+            ClientPuller clientPuller = new(schoolUqsDict, courseUqsDict, _phoenixContext, _logger, verbose);
+            await clientPuller.PutAsync();
 
             await scheduleTask;
 

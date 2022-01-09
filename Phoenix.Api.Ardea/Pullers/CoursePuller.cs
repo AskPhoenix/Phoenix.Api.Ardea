@@ -12,22 +12,28 @@ namespace Phoenix.Api.Ardea.Pullers
     {
         private readonly CourseRepository courseRepository;
         private readonly BookRepository bookRepository;
+        private readonly SchoolRepository schoolRepository;
 
         private readonly Dictionary<int, string> schoolTimezonesDict;
 
+        public List<int> PulledBookIds { get; private set; }
+
         public CoursePuller(Dictionary<int, SchoolUnique> schoolUqsDict, 
-            PhoenixContext phoenixContext, ILogger logger, SchoolUnique? specificSchoolUq = null, bool verbose = true) 
-            : base(schoolUqsDict, logger, specificSchoolUq, verbose)
+            PhoenixContext phoenixContext, ILogger logger, bool verbose = true) 
+            : base(schoolUqsDict, logger, verbose)
         {
             this.courseRepository = new(phoenixContext);
             this.bookRepository = new(phoenixContext);
+            this.schoolRepository = new(phoenixContext);
 
             this.schoolTimezonesDict = FindSchoolTimezones(phoenixContext, schoolUqsDict.Keys);
+
+            this.PulledBookIds = new List<int>();
         }
 
         public override int CategoryId => PostCategoryWrapper.GetCategoryId(PostCategory.Course);
 
-        public override async Task<int[]> PullAsync()
+        public override async Task<List<int>> PullAsync()
         {
             Logger.LogInformation("-----------------------------------------");
             Logger.LogInformation("Courses & Books synchronization started");
@@ -35,10 +41,6 @@ namespace Phoenix.Api.Ardea.Pullers
             IEnumerable<Post> coursePosts = await WordPressClientWrapper.GetPostsAsync(CategoryId);
             IEnumerable<Post> filteredPosts;
 
-            int P = coursePosts.Count();
-            int[] updatedIds = new int[P];
-
-            int p = 0;
             foreach (var schoolUqPair in SchoolUqsDict)
             {
                 filteredPosts = coursePosts.FilterPostsForSchool(schoolUqPair.Value);
@@ -71,19 +73,19 @@ namespace Phoenix.Api.Ardea.Pullers
                         if (Verbose)
                             Logger.LogInformation("Updating Course: {CourseUq}", courseUq.ToString());
                         courseRepository.Update(course, courseAcf.ToContext());
+                        courseRepository.Restore(course);
                     }
 
-                    updatedIds[p++] = course.Id;
                     CourseUqsDict.Add(course.Id, courseUq);
 
                     if (Verbose)
                         Logger.LogInformation("Synchronizing Books for Course: {CourseUq}", courseUq.ToString());
 
-                    var books = courseAcf.ExtractBooks();
-                    var bookIds = new int[books.Count()];
+                    var booksToLink = courseAcf.ExtractBooks();
+                    var bookIdsToLink = new int[booksToLink.Count()];
 
                     int b = 0;
-                    foreach (var book in books)
+                    foreach (var book in booksToLink)
                     {
                         Book ctxBook = await bookRepository.Find(b => b.NormalizedName == book.NormalizedName);
                         if (ctxBook is null)
@@ -96,63 +98,37 @@ namespace Phoenix.Api.Ardea.Pullers
                         else
                         {
                             if (Verbose)
-                                Logger.LogInformation("Updating Book: {BookName}", book.Name);
+                                Logger.LogInformation("Book {BookName} already exists", book.Name);
                             
-                            ctxBook.Publisher = book.Publisher;
-                            ctxBook.Info = book.Info;
-
-                            bookRepository.Update(ctxBook);
+                            //ctxBook.Publisher = book.Publisher;
+                            //ctxBook.Info = book.Info;
+                            //bookRepository.Update(ctxBook);
                         }
 
-                        bookIds[b++] = ctxBook.Id;
+                        bookIdsToLink[b++] = ctxBook.Id;
+                        PulledBookIds.Add(ctxBook.Id);
                     }
 
                     if (Verbose)
                         Logger.LogInformation("Linking Books with Course {CourseUq}", courseUq.ToString());
-                    courseRepository.LinkBooks(course, bookIds, deleteAdditionalLinks: true);
+                    courseRepository.LinkBooks(course, bookIdsToLink, deleteAdditionalLinks: true);
                 }
             }
+
+            PulledBookIds = PulledBookIds.Distinct().ToList();
+            PulledIds = CourseUqsDict.Keys.ToList();
 
             Logger.LogInformation("Courses & Books synchronization finished");
             Logger.LogInformation("------------------------------------------");
 
-            return updatedIds;
+            return PulledIds;
         }
 
-        public override int[] Delete(int[] toKeep)
+        public override List<int> Obviate()
         {
-            // Books are never deleted
+            // Books are never obviated
 
-            Logger.LogInformation("------------------------");
-            Logger.LogInformation("Courses deletion started");
-
-            var toDelete = courseRepository.Find().Where(c => !toKeep.Contains(c.Id));
-            var deletedIds = new int[toDelete.Count()];
-
-            int p = 0;
-            foreach (var course in toDelete)
-            {
-                if (course.IsDeleted)
-                {
-                    if (Verbose)
-                        Logger.LogInformation("Course with id {CourseId} already deleted", course.Id);
-                    continue;
-                }
-
-                if (Verbose)
-                    Logger.LogInformation("Deleting course with id {CourseId}", course.Id);
-
-                course.IsDeleted = true;
-                course.DeletedAt = DateTimeOffset.Now;
-                courseRepository.Update(course);
-
-                deletedIds[p++] = course.Id;
-            }
-
-            Logger.LogInformation("Courses deletion finished");
-            Logger.LogInformation("-------------------------");
-
-            return deletedIds;
+            return ObviatedIds = ObviateForSchools<Course>(schoolRepository.FindCourses, courseRepository);
         }
     }
 }

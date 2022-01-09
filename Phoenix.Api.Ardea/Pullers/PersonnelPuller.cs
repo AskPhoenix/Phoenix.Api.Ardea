@@ -11,14 +11,14 @@ namespace Phoenix.Api.Ardea.Pullers
     public class PersonnelPuller : UserPuller
     {
         public PersonnelPuller(Dictionary<int, SchoolUnique> schoolUqsDict, Dictionary<int, CourseUnique> courseUqsDict, 
-            PhoenixContext phoenixContext, ILogger logger, SchoolUnique? specificSchoolUq = null, bool verbose = true) 
-            : base(schoolUqsDict, courseUqsDict, phoenixContext, logger, specificSchoolUq, verbose) 
+            PhoenixContext phoenixContext, ILogger logger, bool verbose = true) 
+            : base(schoolUqsDict, courseUqsDict, phoenixContext, logger, verbose) 
         {
         }
 
         public override int CategoryId => PostCategoryWrapper.GetCategoryId(PostCategory.Personnel);
 
-        public override async Task<int[]> PullAsync()
+        public override async Task<List<int>> PullAsync()
         {
             Logger.LogInformation("---------------------------------");
             Logger.LogInformation("Personnel synchronization started");
@@ -26,10 +26,6 @@ namespace Phoenix.Api.Ardea.Pullers
             IEnumerable<Post> personnelPosts = await WordPressClientWrapper.GetPostsAsync(CategoryId);
             IEnumerable<Post> filteredPosts;
 
-            int P = personnelPosts.Count();
-            int[] updatedIds = new int[P];
-
-            int p = 0;
             foreach (var schoolUqPair in SchoolUqsDict)
             {
                 filteredPosts = personnelPosts.FilterPostsForSchool(schoolUqPair.Value);
@@ -69,10 +65,11 @@ namespace Phoenix.Api.Ardea.Pullers
                         aspNetUserFrom.UserName = PersonnelACF.GetUserName(userFrom, schoolUqPair.Key, aspNetUser.PhoneNumber);
                         aspNetUserFrom.NormalizedUserName = aspNetUserFrom.UserName.ToUpperInvariant();
 
-                        this.aspNetUserRepository.Update(aspNetUser, aspNetUserFrom, userFrom);
+                        aspNetUserRepository.Update(aspNetUser, aspNetUserFrom, userFrom);
+                        aspNetUserRepository.Restore(aspNetUser);
                     }
 
-                    updatedIds[p++] = aspNetUser.Id;
+                    PulledIds.Add(aspNetUser.Id);
 
                     if (Verbose)
                         Logger.LogInformation("Linking Personnel User with phone number {UserPhone} with their roles",
@@ -100,7 +97,7 @@ namespace Phoenix.Api.Ardea.Pullers
             Logger.LogInformation("Personnel synchronization finished");
             Logger.LogInformation("----------------------------------");
 
-            return updatedIds;
+            return PulledIds = PulledIds.Distinct().ToList();
         }
     }
 }
