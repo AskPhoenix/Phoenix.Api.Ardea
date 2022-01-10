@@ -21,6 +21,8 @@ builder.Services.AddSwaggerGen(o =>
     });
 });
 
+builder.Logging.AddSimpleConsole(o => o.SingleLine = true);
+
 string phoenixConnection = builder.Configuration.GetConnectionString("PhoenixConnection");
 builder.Services.AddDbContext<PhoenixContext>(o => o.UseLazyLoadingProxies().UseSqlServer(phoenixConnection));
 

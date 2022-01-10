@@ -41,7 +41,7 @@ namespace Phoenix.Api.Ardea.Controllers
         public async Task<IActionResult> PutSchoolDataAsync(
             [SwaggerParameter(Description = "Specify only one school to update by its WordPress post title.", Required = false)]
             string? specificSchool = null, 
-            [SwaggerParameter(Description = "Switch between \"verbose\" and \"quiet\" logging.", Required = true)]
+            [SwaggerParameter(Description = "Switch between \"verbose\" and \"quiet\" logging.", Required = false)]
             bool verbose = true)
         {
             SchoolUnique? specificSchoolUq = null;
@@ -52,8 +52,11 @@ namespace Phoenix.Api.Ardea.Controllers
             }
             catch (ArgumentException ex)
             {
+                _logger.LogCritical("{ExceptionMsg}", ex.Message);
                 return BadRequest(ex.Message);
             }
+
+            // Always await async calls on the same DBContext instance
 
             SchoolPuller schoolPuller = new(_phoenixContext, _logger, specificSchoolUq, verbose);
             await schoolPuller.PutAsync();
@@ -64,16 +67,13 @@ namespace Phoenix.Api.Ardea.Controllers
             var courseUqsDict = coursePuller.CourseUqsDict;
 
             SchedulePuller schedulePuller = new(schoolUqsDict, courseUqsDict, _phoenixContext, _logger, verbose);
-            // The schedule task starts asynchronously and is not affected by the following await operations
-            var scheduleTask = schedulePuller.PutAsync();
+            await schedulePuller.PutAsync();
             
             PersonnelPuller personnelPuller = new(schoolUqsDict, courseUqsDict, _phoenixContext, _logger, verbose);
             await personnelPuller.PutAsync();
 
             ClientPuller clientPuller = new(schoolUqsDict, courseUqsDict, _phoenixContext, _logger, verbose);
             await clientPuller.PutAsync();
-
-            await scheduleTask;
 
             return Ok();
         }

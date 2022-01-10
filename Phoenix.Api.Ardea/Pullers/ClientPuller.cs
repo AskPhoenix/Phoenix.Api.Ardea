@@ -1,5 +1,6 @@
 ﻿using Phoenix.DataHandle.Main;
 using Phoenix.DataHandle.Main.Models;
+using Phoenix.DataHandle.Repositories;
 using Phoenix.DataHandle.WordPress;
 using Phoenix.DataHandle.WordPress.Models;
 using Phoenix.DataHandle.WordPress.Models.Uniques;
@@ -9,19 +10,27 @@ using WordPressPCL.Models;
 
 namespace Phoenix.Api.Ardea.Pullers
 {
-    public class ClientPuller : UserPuller
+    public class ClientPuller : WPPuller<AspNetUsers>
     {
-        public ClientPuller(Dictionary<int, SchoolUnique> schoolUqsDict, Dictionary<int, CourseUnique> courseUqsDict, 
-            PhoenixContext phoenixContext, ILogger logger, bool verbose = true) 
-            : base(schoolUqsDict, courseUqsDict, phoenixContext, logger, verbose)
+        protected readonly AspNetUserRepository aspNetUserRepository;
+        protected readonly SchoolRepository schoolRepository;
+
+        public ClientPuller(Dictionary<int, SchoolUnique> schoolUqsDict, Dictionary<int, CourseUnique> courseUqsDict,
+            PhoenixContext phoenixContext, ILogger logger, bool verbose = true)
+            : base(schoolUqsDict, courseUqsDict, logger, verbose)
         {
+            this.aspNetUserRepository = new(phoenixContext);
+            this.aspNetUserRepository.Include(u => u.User);
+            this.aspNetUserRepository.Include(u => u.ParenthoodChild);
+            this.aspNetUserRepository.Include(u => u.ParenthoodParent);
+            this.schoolRepository = new(phoenixContext);
         }
 
         public override int CategoryId => PostCategoryWrapper.GetCategoryId(PostCategory.Client);
 
         public override async Task<List<int>> PullAsync()
         {
-            Logger.LogInformation("------------------------------------------");
+            Logger.LogInformation("-----------------------------------------------------------------");
             Logger.LogInformation("Students & Parents synchronization started");
 
             IEnumerable<Post> clientPosts = await WordPressClientWrapper.GetPostsAsync(CategoryId);
@@ -161,10 +170,41 @@ namespace Phoenix.Api.Ardea.Pullers
                 }
 
                 Logger.LogInformation("Students & Parents synchronization finished");
-                Logger.LogInformation("-------------------------------------------");
+                Logger.LogInformation("-----------------------------------------------------------------");
             }
 
             return PulledIds = PulledIds.Distinct().ToList();
+        }
+
+        public override async Task<List<int>> ObviateAsync(List<int> toKeep)
+        {
+            return ObviatedIds = await ObviateAllPerSchoolAsync(schoolRepository.FindClients, aspNetUserRepository, toKeep);
+        }
+
+        protected override int? ObviateUnit(AspNetUsers user, ObviableRepository<AspNetUsers> repository)
+        {
+            var roles = aspNetUserRepository.FindRoles(user).Select(r => r.Type);
+
+            if (roles.All(r => r.IsClient()))
+            {
+                if (Verbose)
+                    Logger.LogInformation("Deleting all roles from client user with id {UserId}", user.Id);
+                aspNetUserRepository.DeleteRoles(user);
+
+                if (Verbose)
+                    Logger.LogInformation("Assigning \"None\" role to client user with id {UserId}", user.Id);
+                aspNetUserRepository.LinkRole(user, Role.None);
+
+                return base.ObviateUnit(user, repository);
+            }
+
+            Logger.LogWarning("Client user with id {UserId} obviation is skipped because they have non-client roles too", user.Id);
+
+            if (Verbose)
+                Logger.LogInformation("Deleting client roles from client user with id {UserId}", user.Id);
+            aspNetUserRepository.DeleteRoles(user, roles.Where(r => !r.IsClient()).ToList());
+
+            return null;
         }
     }
 }

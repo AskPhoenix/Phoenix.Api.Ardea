@@ -1,4 +1,5 @@
-﻿using Phoenix.DataHandle.Main.Models;
+﻿using Microsoft.EntityFrameworkCore;
+using Phoenix.DataHandle.Main.Models;
 using Phoenix.DataHandle.Repositories;
 using Phoenix.DataHandle.WordPress;
 using Phoenix.DataHandle.WordPress.Models;
@@ -8,7 +9,7 @@ using WordPressPCL.Models;
 
 namespace Phoenix.Api.Ardea.Pullers
 {
-    public class SchoolPuller : WPPuller
+    public class SchoolPuller : WPPuller<School>
     {
         private readonly SchoolRepository schoolRepository;
 
@@ -30,7 +31,7 @@ namespace Phoenix.Api.Ardea.Pullers
 
         public override async Task<List<int>> PullAsync()
         {
-            Logger.LogInformation("-------------------------------");
+            Logger.LogInformation("-----------------------------------------------------------------");
             Logger.LogInformation("Schools synchronization started");
 
             IEnumerable<Post> schoolPosts = await WordPressClientWrapper.GetPostsAsync(CategoryId);
@@ -47,7 +48,7 @@ namespace Phoenix.Api.Ardea.Pullers
                 if (school is null)
                 {
                     if (Verbose)
-                        Logger.LogInformation("Adding School: {SchoolUq}", schoolAcf.SchoolUnique.ToString());
+                        Logger.LogInformation("Adding school {SchoolUq}", schoolAcf.SchoolUnique.ToString());
 
                     school = schoolAcf.ToContext();
                     school.SchoolSettings = schoolAcf.ExtractSchoolSettings();
@@ -57,7 +58,7 @@ namespace Phoenix.Api.Ardea.Pullers
                 else
                 {
                     if (Verbose)
-                        Logger.LogInformation("Updating School: {SchoolUq}", schoolAcf.SchoolUnique.ToString());
+                        Logger.LogInformation("Updating school {SchoolUq}", schoolAcf.SchoolUnique.ToString());
 
                     schoolRepository.Update(school, schoolAcf.ToContext(), schoolAcf.ExtractSchoolSettings());
                     schoolRepository.Restore(school);
@@ -66,33 +67,40 @@ namespace Phoenix.Api.Ardea.Pullers
                 SchoolUqsDict.Add(school.Id, schoolAcf.SchoolUnique);
             }
             
-            PulledIds = SchoolUqsDict.Keys.ToList();
-
             Logger.LogInformation("Schools synchronization finished");
-            Logger.LogInformation("--------------------------------");
+            Logger.LogInformation("-----------------------------------------------------------------");
 
-            return PulledIds;
+            return PulledIds = SchoolUqsDict.Keys.ToList();
         }
 
-        public override List<int> Obviate()
+        public override async Task<List<int>> ObviateAsync(List<int> toKeep)
         {
+            Logger.LogInformation("-----------------------------------------------------------------");
+            Logger.LogInformation("Schools obviation started");
+
+            var toObviate = await schoolRepository.Find()
+                .Where(s => !toKeep.Contains(s.Id))
+                .ToListAsync();
+
+            ObviatedIds = ObviateGroup(toObviate, schoolRepository);
+
+            Logger.LogInformation("Schools obviation finished");
+            Logger.LogInformation("-----------------------------------------------------------------");
+
+            return ObviatedIds;
+        }
+
+        public override async Task PutAsync()
+        {
+            _ = await PullAsync();
+
             if (SpecificSchoolOnly)
             {
                 Logger.LogWarning("Schools obviation skipped due to specific school mode");
-                return new();
+                return;
             }
-
-            Logger.LogInformation("------------------------");
-            Logger.LogInformation("Schools obviation started");
-
-            var toObviate = schoolRepository.Find().Where(s => !SchoolUqsDict.ContainsKey(s.Id));
-
-            ObviatedIds = ObviateGroup<School>(toObviate, schoolRepository);
-
-            Logger.LogInformation("Schools obviation finished");
-            Logger.LogInformation("-------------------------");
-
-            return ObviatedIds;
+            
+            _ = ObviateAsync();
         }
     }
 }

@@ -1,5 +1,6 @@
 ﻿using Phoenix.DataHandle.Main;
 using Phoenix.DataHandle.Main.Models;
+using Phoenix.DataHandle.Repositories;
 using Phoenix.DataHandle.WordPress;
 using Phoenix.DataHandle.WordPress.Models;
 using Phoenix.DataHandle.WordPress.Models.Uniques;
@@ -8,19 +9,25 @@ using WordPressPCL.Models;
 
 namespace Phoenix.Api.Ardea.Pullers
 {
-    public class PersonnelPuller : UserPuller
+    public class PersonnelPuller : WPPuller<AspNetUsers>
     {
-        public PersonnelPuller(Dictionary<int, SchoolUnique> schoolUqsDict, Dictionary<int, CourseUnique> courseUqsDict, 
-            PhoenixContext phoenixContext, ILogger logger, bool verbose = true) 
-            : base(schoolUqsDict, courseUqsDict, phoenixContext, logger, verbose) 
+        protected readonly AspNetUserRepository aspNetUserRepository;
+        protected readonly SchoolRepository schoolRepository;
+
+        public PersonnelPuller(Dictionary<int, SchoolUnique> schoolUqsDict, Dictionary<int, CourseUnique> courseUqsDict,
+            PhoenixContext phoenixContext, ILogger logger, bool verbose = true)
+            : base(schoolUqsDict, courseUqsDict, logger, verbose)
         {
+            this.aspNetUserRepository = new(phoenixContext);
+            this.aspNetUserRepository.Include(u => u.User);
+            this.schoolRepository = new(phoenixContext);
         }
 
         public override int CategoryId => PostCategoryWrapper.GetCategoryId(PostCategory.Personnel);
 
         public override async Task<List<int>> PullAsync()
         {
-            Logger.LogInformation("---------------------------------");
+            Logger.LogInformation("-----------------------------------------------------------------");
             Logger.LogInformation("Personnel synchronization started");
 
             IEnumerable<Post> personnelPosts = await WordPressClientWrapper.GetPostsAsync(CategoryId);
@@ -79,7 +86,7 @@ namespace Phoenix.Api.Ardea.Pullers
                         aspNetUserRepository.LinkRole(aspNetUser, personnelAcf.RoleType);
 
                     // Delete any other roles the user might have
-                    // The only possible scenario where 2 roles are alowed is: a staff role + parent
+                    // The only possible scenario where 2 roles are allowed is: a non-client role + parent
                     aspNetUserRepository.DeleteRoles(aspNetUser, new Role[2] { personnelAcf.RoleType, Role.Parent });
 
                     if (Verbose)
@@ -95,9 +102,40 @@ namespace Phoenix.Api.Ardea.Pullers
             }
 
             Logger.LogInformation("Personnel synchronization finished");
-            Logger.LogInformation("----------------------------------");
+            Logger.LogInformation("-----------------------------------------------------------------");
 
             return PulledIds = PulledIds.Distinct().ToList();
+        }
+
+        public override async Task<List<int>> ObviateAsync(List<int> toKeep)
+        {
+            return ObviatedIds = await ObviateAllPerSchoolAsync(schoolRepository.FindPersonnel, aspNetUserRepository, toKeep);
+        }
+
+        protected override int? ObviateUnit(AspNetUsers user, ObviableRepository<AspNetUsers> repository)
+        {
+            var roles = aspNetUserRepository.FindRoles(user).Select(r => r.Type);
+
+            if (roles.All(r => r.IsPersonnel()))
+            {
+                if (Verbose)
+                    Logger.LogInformation("Deleting all roles from personnel user with id {UserId}", user.Id);
+                aspNetUserRepository.DeleteRoles(user);
+
+                if (Verbose)
+                    Logger.LogInformation("Assigning \"None\" role to personnel user with id {UserId}", user.Id);
+                aspNetUserRepository.LinkRole(user, Role.None);
+
+                return base.ObviateUnit(user, repository);
+            }
+
+            Logger.LogWarning("Personnel user with id {UserId} obviation is skipped because they have client roles too", user.Id);
+            
+            if (Verbose)
+                Logger.LogInformation("Deleting non-client roles from personnel user with id {UserId}", user.Id);
+            aspNetUserRepository.DeleteRoles(user, roles.Where(r => r.IsClient()).ToList());
+
+            return null;
         }
     }
 }

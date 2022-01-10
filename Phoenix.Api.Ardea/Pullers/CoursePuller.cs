@@ -8,7 +8,7 @@ using WordPressPCL.Models;
 
 namespace Phoenix.Api.Ardea.Pullers
 {
-    public class CoursePuller : WPPuller
+    public class CoursePuller : WPPuller<Course>
     {
         private readonly CourseRepository courseRepository;
         private readonly BookRepository bookRepository;
@@ -35,7 +35,7 @@ namespace Phoenix.Api.Ardea.Pullers
 
         public override async Task<List<int>> PullAsync()
         {
-            Logger.LogInformation("-----------------------------------------");
+            Logger.LogInformation("-----------------------------------------------------------------");
             Logger.LogInformation("Courses & Books synchronization started");
 
             IEnumerable<Post> coursePosts = await WordPressClientWrapper.GetPostsAsync(CategoryId);
@@ -45,7 +45,7 @@ namespace Phoenix.Api.Ardea.Pullers
             {
                 filteredPosts = coursePosts.FilterPostsForSchool(schoolUqPair.Value);
                 
-                Logger.LogInformation("{CoursesNumber} Courses found for School \"{SchoolUq}\"", 
+                Logger.LogInformation("{CoursesNumber} courses found for School \"{SchoolUq}\"", 
                     filteredPosts.Count(), schoolUqPair.Value.ToString());
 
                 foreach (var coursePost in filteredPosts)
@@ -61,7 +61,7 @@ namespace Phoenix.Api.Ardea.Pullers
                     if (course is null)
                     {
                         if (Verbose)
-                            Logger.LogInformation("Adding Course: {CourseUq}", courseUq.ToString());
+                            Logger.LogInformation("Adding course with code {CourseCode}", courseUq.Code);
 
                         course = courseAcf.ToContext();
                         course.SchoolId = schoolUqPair.Key;
@@ -71,7 +71,7 @@ namespace Phoenix.Api.Ardea.Pullers
                     else
                     {
                         if (Verbose)
-                            Logger.LogInformation("Updating Course: {CourseUq}", courseUq.ToString());
+                            Logger.LogInformation("Updating course with code {CourseCode}", courseUq.Code);
                         courseRepository.Update(course, courseAcf.ToContext());
                         courseRepository.Restore(course);
                     }
@@ -79,7 +79,7 @@ namespace Phoenix.Api.Ardea.Pullers
                     CourseUqsDict.Add(course.Id, courseUq);
 
                     if (Verbose)
-                        Logger.LogInformation("Synchronizing Books for Course: {CourseUq}", courseUq.ToString());
+                        Logger.LogInformation("Synchronizing books for course with code {CourseCode}", courseUq.Code);
 
                     var booksToLink = courseAcf.ExtractBooks();
                     var bookIdsToLink = new int[booksToLink.Count()];
@@ -91,14 +91,14 @@ namespace Phoenix.Api.Ardea.Pullers
                         if (ctxBook is null)
                         {
                             if (Verbose)
-                                Logger.LogInformation("Adding Book: {BookName}", book.Name);
+                                Logger.LogInformation("Adding book: {BookName}", book.Name);
                             bookRepository.Create(book);
                             ctxBook = book;
                         }
                         else
                         {
                             if (Verbose)
-                                Logger.LogInformation("Book {BookName} already exists", book.Name);
+                                Logger.LogInformation("Book \"{BookName}\" already exists", book.Name);
                             
                             //ctxBook.Publisher = book.Publisher;
                             //ctxBook.Info = book.Info;
@@ -110,25 +110,23 @@ namespace Phoenix.Api.Ardea.Pullers
                     }
 
                     if (Verbose)
-                        Logger.LogInformation("Linking Books with Course {CourseUq}", courseUq.ToString());
+                        Logger.LogInformation("Linking books with course with code {CourseCode}", courseUq.Code);
                     courseRepository.LinkBooks(course, bookIdsToLink, deleteAdditionalLinks: true);
                 }
             }
 
-            PulledBookIds = PulledBookIds.Distinct().ToList();
-            PulledIds = CourseUqsDict.Keys.ToList();
-
             Logger.LogInformation("Courses & Books synchronization finished");
-            Logger.LogInformation("------------------------------------------");
+            Logger.LogInformation("-----------------------------------------------------------------");
 
-            return PulledIds;
+            PulledBookIds = PulledBookIds.Distinct().ToList();
+            return PulledIds = CourseUqsDict.Keys.ToList();
         }
 
-        public override List<int> Obviate()
+        public override async Task<List<int>> ObviateAsync(List<int> toKeep)
         {
             // Books are never obviated
 
-            return ObviatedIds = ObviateForSchools<Course>(schoolRepository.FindCourses, courseRepository);
+            return ObviatedIds = await ObviateAllPerSchoolAsync(schoolRepository.FindCourses, courseRepository, toKeep);
         }
     }
 }
