@@ -105,6 +105,9 @@ namespace Phoenix.Api.Ardea.Pullers
                     obviatedIds.Add(obviatedId.Value);
             }
 
+            Logger.LogInformation("{ObviatedNumber} {ObviableTypeName}s obviated",
+                toObviate.Count, _obviableTypeName.ToLower());
+
             return obviatedIds;
         }
 
