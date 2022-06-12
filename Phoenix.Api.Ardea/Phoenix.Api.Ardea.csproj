@@ -4,7 +4,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>3.0.0-beta.3</Version>
+    <Version>3.0.0-beta1.0</Version>
     <Authors>AskPhoenix</Authors>
     <Description>A REST API to pull the schools' data from the WordPress administrative WebApp and sync it with PhoenixDB.</Description>
     <Copyright>AskPhoenix 2022</Copyright>
@@ -13,7 +13,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Phoenix.DataHandle" Version="3.0.0-beta.10" />
+    <Compile Remove="Pullers\ClientPuller.cs" />
+    <Compile Remove="Pullers\PersonnelPuller.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Phoenix.DataHandle" Version="3.0.0-beta1.5" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.3.1" />
     <PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="6.3.1" />
   </ItemGroup>

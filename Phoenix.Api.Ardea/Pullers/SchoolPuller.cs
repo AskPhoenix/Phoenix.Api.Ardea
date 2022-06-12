@@ -1,10 +1,9 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Phoenix.DataHandle.DataEntry;
+using Phoenix.DataHandle.DataEntry.Models.Uniques;
+using Phoenix.DataHandle.Main.Entities;
 using Phoenix.DataHandle.Main.Models;
 using Phoenix.DataHandle.Repositories;
-using Phoenix.DataHandle.WordPress;
-using Phoenix.DataHandle.WordPress.Models;
-using Phoenix.DataHandle.WordPress.Models.Uniques;
-using Phoenix.DataHandle.WordPress.Wrappers;
 using WordPressPCL.Models;
 
 namespace Phoenix.Api.Ardea.Pullers
@@ -16,75 +15,94 @@ namespace Phoenix.Api.Ardea.Pullers
         public SchoolUnique? SpecificSchoolUq { get; }
         public bool SpecificSchoolOnly { get; }
 
+        public override PostCategory PostCategory => PostCategory.SchoolInformation;
+
         public SchoolPuller(PhoenixContext phoenixContext, ILogger logger, 
             SchoolUnique? specificSchoolUq = null, bool verbose = true)
             : base(logger, verbose)
         {
             this.schoolRepository = new(phoenixContext);
-            this.schoolRepository.Include(s => s.SchoolSettings);
 
             this.SpecificSchoolUq = specificSchoolUq;
             this.SpecificSchoolOnly = specificSchoolUq != null;
         }
 
-        public override int CategoryId => PostCategoryWrapper.GetCategoryId(PostCategory.SchoolInformation);
-
         public override async Task<List<int>> PullAsync()
         {
             Logger.LogInformation("-----------------------------------------------------------------");
-            Logger.LogInformation("Schools synchronization started");
+            Logger.LogInformation("Schools synchronization started.");
 
-            IEnumerable<Post> schoolPosts = await WordPressClientWrapper.GetPostsAsync(CategoryId);
+            IEnumerable<Post> schoolPosts = await WPClientWrapper.GetPostsAsync(this.PostCategory);
             if (SpecificSchoolOnly)
                 schoolPosts = schoolPosts.FilterPostsForSchool(SpecificSchoolUq!);
+            else
+                Logger.LogInformation("{SchoolsNumber} Schools found.", schoolPosts.Count());
 
-            Logger.LogInformation("{SchoolsNumber} Schools found", schoolPosts.Count());
+            var toCreate = new List<School>();
+            var toUpdate = new List<School>();
+            var toUpdateFrom = new List<School>();
 
             foreach (var schoolPost in schoolPosts)
             {
-                SchoolACF schoolAcf = (SchoolACF)(await WordPressClientWrapper.GetAcfAsync<SchoolACF>(schoolPost.Id)).WithTitleCase();
+                var schoolAcf = await WPClientWrapper.GetSchoolAcfAsync(schoolPost);
+                var schoolUq = schoolAcf.GetSchoolUnique();
+                var school = await schoolRepository.FindUniqueAsync(schoolAcf);
 
-                var school = await schoolRepository.Find(checkUnique: schoolAcf.MatchesUnique);
                 if (school is null)
                 {
                     if (Verbose)
-                        Logger.LogInformation("Adding school {SchoolUq}", schoolAcf.SchoolUnique.ToString());
+                        Logger.LogInformation("School {SchoolUq} to be created.", schoolUq.ToString());
 
-                    school = schoolAcf.ToContext();
-                    school.SchoolSettings = schoolAcf.ExtractSchoolSettings();
+                    // TODO: To check
+                    school = (School)(ISchool)schoolAcf;
+                    //school.SchoolSettings = schoolAcf.ExtractSchoolSettings();
 
-                    schoolRepository.Create(school);
+                    toCreate.Add(school);
                 }
                 else
                 {
                     if (Verbose)
-                        Logger.LogInformation("Updating school {SchoolUq}", schoolAcf.SchoolUnique.ToString());
+                        Logger.LogInformation("School {SchoolUq} to be updated.", schoolUq.ToString());
 
-                    schoolRepository.Update(school, schoolAcf.ToContext(), schoolAcf.ExtractSchoolSettings());
-                    schoolRepository.Restore(school);
+                    toUpdate.Add(school);
+                    toUpdateFrom.Add((School)(ISchool)schoolAcf);
                 }
-
-                SchoolUqsDict.Add(school.Id, schoolAcf.SchoolUnique);
             }
-            
-            Logger.LogInformation("Schools synchronization finished");
+
+            Logger.LogInformation("Creating {ToCreateNum} schools...", toCreate.Count);
+            var created = await schoolRepository.CreateRangeAsync(toCreate);
+            Logger.LogInformation("{CreatedNum}/{ToCreateNum} schools created successfully.",
+                created.Count(), toCreate.Count);
+
+            Logger.LogInformation("Updating {ToUpdateNum} schools...", toUpdate.Count);
+            var updated = await schoolRepository.UpdateRangeAsync(toUpdate, toUpdateFrom);
+            var restored = await schoolRepository.RestoreRangeAsync(toUpdate);
+            Logger.LogInformation("{UpdatedNum}/{ToUpdateNum} schools updated successfully.",
+                updated.Count() + restored.Count(), toUpdate.Count);
+
+            Logger.LogInformation("Schools synchronization finished.");
             Logger.LogInformation("-----------------------------------------------------------------");
 
-            return PulledIds = SchoolUqsDict.Keys.ToList();
+            foreach (var school in created.Concat(updated))
+                SchoolUqsDict.Add(school.Id, new SchoolUnique(school.Code));
+
+            PulledIds.AddRange(SchoolUqsDict.Keys);
+
+            return PulledIds;
         }
 
         public override async Task<List<int>> ObviateAsync(List<int> toKeep)
         {
             Logger.LogInformation("-----------------------------------------------------------------");
-            Logger.LogInformation("Schools obviation started");
+            Logger.LogInformation("Schools obviation started.");
 
             var toObviate = await schoolRepository.Find()
                 .Where(s => !toKeep.Contains(s.Id))
                 .ToListAsync();
 
-            ObviatedIds = ObviateGroup(toObviate, schoolRepository);
+            ObviatedIds = await ObviateGroupAsync(toObviate, schoolRepository);
 
-            Logger.LogInformation("Schools obviation finished");
+            Logger.LogInformation("Schools obviation finished.");
             Logger.LogInformation("-----------------------------------------------------------------");
 
             return ObviatedIds;
@@ -96,11 +114,11 @@ namespace Phoenix.Api.Ardea.Pullers
 
             if (SpecificSchoolOnly)
             {
-                Logger.LogWarning("Schools obviation skipped due to specific school mode");
+                Logger.LogWarning("Schools obviation skipped due to specific school mode.");
                 return;
             }
             
-            _ = ObviateAsync();
+            _ = await ObviateAsync();
         }
     }
 }

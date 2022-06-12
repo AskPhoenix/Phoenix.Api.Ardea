@@ -1,8 +1,9 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Phoenix.Api.Ardea.Pullers;
+using Phoenix.DataHandle.DataEntry;
+using Phoenix.DataHandle.DataEntry.Models.Uniques;
+using Phoenix.DataHandle.Identity;
 using Phoenix.DataHandle.Main.Models;
-using Phoenix.DataHandle.WordPress.Models.Uniques;
-using Phoenix.DataHandle.WordPress.Wrappers;
 using Swashbuckle.AspNetCore.Annotations;
 
 namespace Phoenix.Api.Ardea.Controllers
@@ -13,25 +14,28 @@ namespace Phoenix.Api.Ardea.Controllers
     {
         private readonly ILogger<SyncController> _logger;
         private readonly PhoenixContext _phoenixContext;
+        private readonly ApplicationStore _appStore;    // TODO: Inject
 
         public SyncController(
-            ILogger<SyncController> logger, 
-            PhoenixContext phoenixContext, 
+            ILogger<SyncController> logger,
+            PhoenixContext phoenixContext,
+            ApplicationStore applicationStore,
             IConfiguration configuration)
         {
             _logger = logger;
             _phoenixContext = phoenixContext;
+            _appStore = applicationStore;
 
             string wpUsername = configuration["WordPressAuth:Username"];
             string wpPassword = configuration["WordPressAuth:Password"];
 
-            bool authenticated = Task.Run(() => WordPressClientWrapper.AuthenticateAsync(wpUsername, wpPassword)).Result;
+            bool authenticated = Task.Run(() => WPClientWrapper.AuthenticateAsync(wpUsername, wpPassword)).Result;
             if (authenticated)
                 _logger.LogInformation("Service authenticated to WordPress successfuly.");
             else
                 _logger.LogError("Service was unable to authenticate to WordPress.");
 
-            WordPressClientWrapper.AlwaysUseAuthentication = true;
+            WPClientWrapper.AlwaysUseAuthentication = true;
         }
 
         [HttpPut("schools")]
@@ -69,11 +73,11 @@ namespace Phoenix.Api.Ardea.Controllers
             SchedulePuller schedulePuller = new(schoolUqsDict, courseUqsDict, _phoenixContext, _logger, verbose);
             await schedulePuller.PutAsync();
             
-            PersonnelPuller personnelPuller = new(schoolUqsDict, courseUqsDict, _phoenixContext, _logger, verbose);
-            await personnelPuller.PutAsync();
+            //PersonnelPuller personnelPuller = new(schoolUqsDict, courseUqsDict, _phoenixContext, _appStore, _logger, verbose);
+            //await personnelPuller.PutAsync();
 
-            ClientPuller clientPuller = new(schoolUqsDict, courseUqsDict, _phoenixContext, _logger, verbose);
-            await clientPuller.PutAsync();
+            //ClientPuller clientPuller = new(schoolUqsDict, courseUqsDict, _phoenixContext, _appStore, _logger, verbose);
+            //await clientPuller.PutAsync();
 
             return Ok();
         }

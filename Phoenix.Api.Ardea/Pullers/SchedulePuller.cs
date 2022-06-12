@@ -1,11 +1,8 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Phoenix.DataHandle.DataEntry;
+using Phoenix.DataHandle.DataEntry.Models.Uniques;
+using Phoenix.DataHandle.Main.Entities;
 using Phoenix.DataHandle.Main.Models;
 using Phoenix.DataHandle.Repositories;
-using Phoenix.DataHandle.WordPress;
-using Phoenix.DataHandle.WordPress.Models;
-using Phoenix.DataHandle.WordPress.Models.Uniques;
-using Phoenix.DataHandle.WordPress.Utilities;
-using Phoenix.DataHandle.WordPress.Wrappers;
 using WordPressPCL.Models;
 
 namespace Phoenix.Api.Ardea.Pullers
@@ -18,7 +15,9 @@ namespace Phoenix.Api.Ardea.Pullers
 
         private readonly Dictionary<int, string> schoolTimezonesDict;
 
-        public List<int> PulledClassroomIds { get; private set; }
+        public List<int> PulledClassroomIds { get; } = new();
+
+        public override PostCategory PostCategory => PostCategory.Schedule;
 
         public SchedulePuller(Dictionary<int, SchoolUnique> schoolUqsDict, Dictionary<int, CourseUnique> courseUqsDict, 
             PhoenixContext phoenixContext, ILogger logger, bool verbose = true) 
@@ -28,108 +27,127 @@ namespace Phoenix.Api.Ardea.Pullers
             this.classroomRepository = new(phoenixContext);
             this.courseRepository = new(phoenixContext);
 
-            this.schoolTimezonesDict = FindSchoolTimezones(phoenixContext, schoolUqsDict.Keys);
-
-            this.PulledClassroomIds = new List<int>();
+            this.schoolTimezonesDict = Task.Run(() => FindSchoolTimezonesAsync(phoenixContext, schoolUqsDict.Keys)).Result;
         }
-
-        public override int CategoryId => PostCategoryWrapper.GetCategoryId(PostCategory.Schedule);
 
         public override async Task<List<int>> PullAsync()
         {
             Logger.LogInformation("-----------------------------------------------------------------");
-            Logger.LogInformation("Schedules & Classrooms synchronization started");
+            Logger.LogInformation("Schedules & Classrooms synchronization started.");
 
-            IEnumerable<Post> schedulePosts = await WordPressClientWrapper.GetPostsAsync(CategoryId);
+            IEnumerable<Post> schedulePosts = await WPClientWrapper.GetPostsAsync(this.PostCategory);
             IEnumerable<Post> filteredPosts;
+
+            var toCreate = new List<Schedule>();
+            var toUpdate = new List<Schedule>();
+            var toUpdateFrom = new List<Schedule>();
+
+            var classroomsToCreate = new List<Classroom>();
+            var classroomsToUpdate = new List<Classroom>(); // Used only to store the classroom ids
 
             foreach (var schoolUqPair in SchoolUqsDict)
             {
                 filteredPosts = schedulePosts.FilterPostsForSchool(schoolUqPair.Value);
 
-                Logger.LogInformation("{SchedulesNumber} Schedules found for School \"{SchoolUq}\"",
+                Logger.LogInformation("{SchedulesNumber} Schedules found for School \"{SchoolUq}\".",
                     filteredPosts.Count(), schoolUqPair.Value);
 
                 foreach (var schedulePost in filteredPosts)
                 {
-                    var scheduleAcf = (ScheduleACF)(await WordPressClientWrapper.GetAcfAsync<ScheduleACF>(schedulePost.Id)).WithTitleCase();
-                    scheduleAcf.SchoolUnique = schoolUqPair.Value;
-                    scheduleAcf.SchoolTimeZone = schoolTimezonesDict[schoolUqPair.Key];
+                    var scheduleAcf = await WPClientWrapper.GetScheduleAcfAsync(schedulePost);
+                    var courseUq = new CourseUnique(schoolUqPair.Value, scheduleAcf.CourseCode);
+                    var courseKv = CourseUqsDict.SingleOrDefault(kv => kv.Value.Equals(courseUq));
 
-                    var courseUq = new CourseUnique(scheduleAcf.SchoolUnique, scheduleAcf.CourseCode);
+                    if (courseKv.Equals(default))
+                    {
+                        Logger.LogError("There is no course with code {CourseCode}.", courseUq.Code);
+                        Logger.LogError("Schedule {SchedulePostTitle} is skipped.", schedulePost.GetTitle());
+
+                        continue;
+                    }
+
+                    int courseId = courseKv.Key;
 
                     Classroom? classroom = null;
 
                     if (!string.IsNullOrEmpty(scheduleAcf.ClassroomName))
                     {
-                        classroom = classroomRepository.Find(schoolUqPair.Key, scheduleAcf.ClassroomName);
+                        classroom = await classroomRepository.FindUniqueAsync(schoolUqPair.Key, scheduleAcf.ClassroomName);
                         
                         if (classroom is null)
                         {
                             if (Verbose)
-                                Logger.LogInformation("Adding classroom: {ClassroomName}", scheduleAcf.ClassroomName);
-                            classroom = new Classroom()
+                                Logger.LogInformation("Classroom \"{ClassroomName}\" to be created.", scheduleAcf.ClassroomName);
+
+                            classroom = new()
                             {
                                 SchoolId = schoolUqPair.Key,
                                 Name = scheduleAcf.ClassroomName
                             };
 
-                            this.classroomRepository.Create(classroom);
+                            classroomsToCreate.Add(classroom);
                         }
                         else
                         {
                             if (Verbose)
-                                Logger.LogInformation("Classroom \"{ClassroomName}\" already exists", classroom.Name);
+                                Logger.LogInformation("Classroom \"{ClassroomName}\" already exists.", classroom.Name);
+
+                            classroomsToUpdate.Add(classroom);
                         }
-                        
-                        PulledClassroomIds.Add(classroom.Id);
                     }
 
-                    var schedule = await this.scheduleRepository.Find(scheduleAcf.MatchesUnique);
+
+                    var schedule = await this.scheduleRepository.FindUniqueAsync(courseId, scheduleAcf);
                     if (schedule is null)
                     {
                         if (Verbose)
-                            Logger.LogInformation("Adding schedule for course with code {CourseCode} on {Day} at {Time}",
-                                scheduleAcf.CourseCode, scheduleAcf.InvariantDayOfWeek, scheduleAcf.StartTime.ToString("HH:mm"));
+                            Logger.LogInformation("Schedule for course with code {CourseCode} on {Day} at {Time} to be created.",
+                                scheduleAcf.CourseCode, scheduleAcf.DayString, scheduleAcf.StartTime.ToString("HH:mm"));
 
-                        schedule = scheduleAcf.ToContext();
+                        schedule = (Schedule)(ISchedule)scheduleAcf;
                         schedule.ClassroomId = classroom?.Id;
-                        try
-                        {
-                            schedule.CourseId = CourseUqsDict.Single(kv => kv.Value.Equals(courseUq)).Key;
-                        }
-                        catch (InvalidOperationException)
-                        {
-                            Logger.LogError("There is no course with code {CourseCode}", courseUq.Code);
-                            Logger.LogError("Schedule {SchedulePostTitle} is skipped", schedulePost.GetTitle());
+                        schedule.CourseId = courseId;
 
-                            continue;
-                        }
-                        
-                        scheduleRepository.Create(schedule);
+                        toCreate.Add(schedule);
                     }
                     else
                     {
                         if (Verbose)
-                            Logger.LogInformation("Updating schedule for course with code {CourseCode} on {Day} at {Time}",
-                                scheduleAcf.CourseCode, scheduleAcf.InvariantDayOfWeek, scheduleAcf.StartTime.ToString("HH:mm"));
+                            Logger.LogInformation("Updating schedule for course with code {CourseCode} on {Day} at {Time}.",
+                                scheduleAcf.CourseCode, scheduleAcf.DayString, scheduleAcf.StartTime.ToString("HH:mm"));
 
-                        var scheduleFrom = scheduleAcf.ToContext();
+                        var scheduleFrom = (Schedule)(ISchedule)scheduleAcf;
                         scheduleFrom.ClassroomId = classroom?.Id;
 
-                        scheduleRepository.Update(schedule, scheduleFrom);
-                        scheduleRepository.Restore(schedule);
+                        toUpdate.Add(schedule);
+                        toUpdateFrom.Add(scheduleFrom);
                     }
-
-                    PulledIds.Add(schedule.Id);
                 }
             }
 
-            Logger.LogInformation("Schedules & Classrooms synchronization finished");
+            Logger.LogInformation("Creating {ToCreateNum} schedules...", toCreate.Count);
+            var created = await scheduleRepository.CreateRangeAsync(toCreate);
+            Logger.LogInformation("{CreatedNum}/{ToCreateNum} schedules created successfully.",
+                created.Count(), toCreate.Count);
+
+            Logger.LogInformation("Creating {ToCreateNum} classrooms...", classroomsToCreate.Count);
+            var classroomsCreated = await classroomRepository.CreateRangeAsync(classroomsToCreate);
+            Logger.LogInformation("{CreatedNum}/{ToCreateNum} classrooms created successfully.",
+                classroomsCreated.Count(), classroomsToCreate.Count);
+
+            Logger.LogInformation("Updating {ToUpdateNum} schedules...", toUpdate.Count);
+            var updated = await scheduleRepository.UpdateRangeAsync(toUpdate, toUpdateFrom);
+            var restored = await scheduleRepository.RestoreRangeAsync(toUpdate);
+            Logger.LogInformation("{UpdatedNum}/{ToUpdateNum} schedules updated successfully.",
+                updated.Count() + restored.Count(), toUpdate.Count);
+
+            Logger.LogInformation("Schedules & Classrooms synchronization finished.");
             Logger.LogInformation("-----------------------------------------------------------------");
 
-            PulledClassroomIds = PulledClassroomIds.Distinct().ToList();
-            return PulledIds = PulledIds.Distinct().ToList();
+            PulledClassroomIds.AddRange(classroomsCreated.Concat(classroomsToUpdate).Select(c => c.Id).Distinct().ToList());
+            PulledIds.AddRange(created.Concat(updated).Select(s => s.Id).Distinct().ToList());
+            
+            return PulledIds;
         }
 
         public override async Task<List<int>> ObviateAsync(List<int> toKeep)
@@ -137,26 +155,30 @@ namespace Phoenix.Api.Ardea.Pullers
             // Classrooms are never obviated
 
             Logger.LogInformation("-----------------------------------------------------------------");
-            Logger.LogInformation("Schedules obviation started");
+            Logger.LogInformation("Schedules obviation started.");
 
             foreach (var schoolUqPair in SchoolUqsDict)
             {
-                Logger.LogInformation("Obviation of schedules for courses of school \"{SchoolUq}\"", schoolUqPair.Value);
+                Logger.LogInformation("Obviation of schedules for courses of school \"{SchoolUq}\".", schoolUqPair.Value);
 
                 var schoolCoursesUqsDict = CourseUqsDict.Where(kv => kv.Value.SchoolUnique.Equals(schoolUqPair.Value));
                 foreach (var courseUqPair in schoolCoursesUqsDict)
                 {
-                    Logger.LogInformation("Obviation of schedules for course with code {CourseCode}", courseUqPair.Value.Code);
+                    Logger.LogInformation("Obviation of schedules for course with code {CourseCode}.", courseUqPair.Value.Code);
 
-                    var toObviate = await courseRepository.FindSchedules(courseUqPair.Key)
+                    var course = await courseRepository.FindPrimaryAsync(courseUqPair.Key);
+                    if (course is null)
+                        continue;
+
+                    var toObviate = course.Schedules
                         .Where(s => !toKeep.Contains(s.Id))
-                        .ToListAsync();
+                        .ToList();
 
-                    ObviatedIds.AddRange(ObviateGroup(toObviate, scheduleRepository));
+                    ObviatedIds.AddRange(await ObviateGroupAsync(toObviate, scheduleRepository));
                 }
             }
 
-            Logger.LogInformation("Schedules obviation finished");
+            Logger.LogInformation("Schedules obviation finished.");
             Logger.LogInformation("-----------------------------------------------------------------");
 
             return ObviatedIds;
