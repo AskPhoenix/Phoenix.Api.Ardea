@@ -54,19 +54,21 @@ namespace Phoenix.Api.Ardea.Controllers
             }
         }
 
-        [HttpPut("schools/post/{title}")]
-        [SwaggerOperation(Summary = "Synchronize schools' data with the Phoenix backend.")]
+        [HttpPut("/specific/post/{title}")]
+        [SwaggerOperation(Summary = "Synchronize data for a specific school by the WP post title.")]
         [SwaggerResponse(StatusCodes.Status200OK, "Data synchronization finished with no problems.")]
-        [SwaggerResponse(StatusCodes.Status400BadRequest, "The \"specific school\" parameter is mal-formed.")]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "The \"post title\" parameter is mal-formed.")]
         public async Task<IActionResult> PutSchoolDataAsync(
-            [SwaggerParameter(Description = "Specify only one school to update by its WordPress post title.", Required = false)]
-            string? title = null)
+            [SwaggerParameter(Description = "The WP post title.", Required = true)]
+            string title)
         {
-            SchoolUnique? specificSchoolUq = null;
+            if (string.IsNullOrWhiteSpace(title))
+                return BadRequest();
+
+            SchoolUnique specificSchoolUq;
             try
             {
-                if (!string.IsNullOrWhiteSpace(title))
-                    specificSchoolUq = new(title);
+                specificSchoolUq = new(title);
             }
             catch (ArgumentException ex)
             {
@@ -77,19 +79,18 @@ namespace Phoenix.Api.Ardea.Controllers
             return await PutSchoolDataAsync(specificSchoolUq);
         }
 
-        [HttpPut("schools/code/{code}")]
-        [SwaggerOperation(Summary = "Synchronize schools' data with the Phoenix backend.")]
+        [HttpPut("/specific/code/{code}")]
+        [SwaggerOperation(Summary = "Synchronize data for a specific school by the school code.")]
         [SwaggerResponse(StatusCodes.Status200OK, "Data synchronization finished with no problems.")]
-        [SwaggerResponse(StatusCodes.Status400BadRequest, "The \"specific school\" parameter is mal-formed.")]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "The \"school code\" parameter is mal-formed.")]
         public async Task<IActionResult> PutSchoolDataAsync(
-            [SwaggerParameter(Description = "Specify only one school to update by its unique code.", Required = false)]
-            int? code)
+            [SwaggerParameter(Description = "The school code.", Required = true)]
+            int code)
         {
-            SchoolUnique? specificSchoolUq = null;
+            SchoolUnique specificSchoolUq;
             try
             {
-                if (code != null)
-                    specificSchoolUq = new(code.Value);
+                specificSchoolUq = new(code);
             }
             catch (ArgumentException ex)
             {
@@ -98,6 +99,14 @@ namespace Phoenix.Api.Ardea.Controllers
             }
 
             return await PutSchoolDataAsync(specificSchoolUq);
+        }
+
+        [HttpPut("/all")]
+        [SwaggerOperation(Summary = "Synchronize data for all schools.")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Data synchronization finished with no problems.")]
+        public async Task<IActionResult> PutSchoolDataAsync()
+        {
+            return await PutSchoolDataAsync(specificSchoolUq: null);
         }
 
         private async Task<IActionResult> PutSchoolDataAsync(SchoolUnique? specificSchoolUq)
@@ -109,6 +118,8 @@ namespace Phoenix.Api.Ardea.Controllers
                 SchoolPuller schoolPuller = new(_phoenixContext, _logger, specificSchoolUq, _verbose);
                 await schoolPuller.PutAsync();
                 var schoolUqsDict = schoolPuller.SchoolUqsDict;
+
+                return Ok();
 
                 CoursePuller coursePuller = new(schoolUqsDict, _phoenixContext, _logger, _verbose);
                 await coursePuller.PutAsync();
