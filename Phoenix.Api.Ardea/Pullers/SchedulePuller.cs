@@ -9,10 +9,11 @@ namespace Phoenix.Api.Ardea.Pullers
 {
     public class SchedulePuller : WPPuller<Schedule>
     {
-        private readonly ScheduleRepository scheduleRepository;
-        private readonly ClassroomRepository classroomRepository;
-        private readonly CourseRepository courseRepository;
+        private readonly ScheduleRepository _scheduleRepository;
+        private readonly ClassroomRepository _classroomRepository;
+        private readonly CourseRepository _courseRepository;
 
+        // TODO: To Remove?
         private readonly Dictionary<int, string> schoolTimezonesDict;
 
         public List<int> PulledClassroomIds { get; } = new();
@@ -21,19 +22,19 @@ namespace Phoenix.Api.Ardea.Pullers
 
         public SchedulePuller(Dictionary<int, SchoolUnique> schoolUqsDict, Dictionary<int, CourseUnique> courseUqsDict, 
             PhoenixContext phoenixContext, ILogger logger, bool verbose = true) 
-            : base(schoolUqsDict, courseUqsDict, logger, verbose)
+            : base(schoolUqsDict, courseUqsDict, phoenixContext, logger, verbose)
         {
-            this.scheduleRepository = new(phoenixContext);
-            this.classroomRepository = new(phoenixContext);
-            this.courseRepository = new(phoenixContext);
+            this._scheduleRepository = new(phoenixContext);
+            this._classroomRepository = new(phoenixContext);
+            this._courseRepository = new(phoenixContext);
 
             this.schoolTimezonesDict = Task.Run(() => FindSchoolTimezonesAsync(phoenixContext, schoolUqsDict.Keys)).Result;
         }
 
         public override async Task<List<int>> PullAsync()
         {
-            Logger.LogInformation("-----------------------------------------------------------------");
-            Logger.LogInformation("Schedules & Classrooms synchronization started.");
+            _logger.LogInformation("-----------------------------------------------------------------");
+            _logger.LogInformation("Schedules & Classrooms synchronization started.");
 
             IEnumerable<Post> schedulePosts = await WPClientWrapper.GetPostsAsync(this.PostCategory);
             IEnumerable<Post> filteredPosts;
@@ -49,7 +50,7 @@ namespace Phoenix.Api.Ardea.Pullers
             {
                 filteredPosts = schedulePosts.FilterPostsForSchool(schoolUqPair.Value);
 
-                Logger.LogInformation("{SchedulesNumber} Schedules found for School \"{SchoolUq}\".",
+                _logger.LogInformation("{SchedulesNumber} Schedules found for School \"{SchoolUq}\".",
                     filteredPosts.Count(), schoolUqPair.Value);
 
                 foreach (var schedulePost in filteredPosts)
@@ -60,8 +61,8 @@ namespace Phoenix.Api.Ardea.Pullers
 
                     if (courseKv.Equals(default))
                     {
-                        Logger.LogError("There is no course with code {CourseCode}.", courseUq.Code);
-                        Logger.LogError("Schedule {SchedulePostTitle} is skipped.", schedulePost.GetTitle());
+                        _logger.LogError("There is no course with code {CourseCode}.", courseUq.Code);
+                        _logger.LogError("Schedule {SchedulePostTitle} is skipped.", schedulePost.GetTitle());
 
                         continue;
                     }
@@ -72,12 +73,12 @@ namespace Phoenix.Api.Ardea.Pullers
 
                     if (!string.IsNullOrEmpty(scheduleAcf.ClassroomName))
                     {
-                        classroom = await classroomRepository.FindUniqueAsync(schoolUqPair.Key, scheduleAcf.ClassroomName);
+                        classroom = await _classroomRepository.FindUniqueAsync(schoolUqPair.Key, scheduleAcf.ClassroomName);
                         
                         if (classroom is null)
                         {
                             if (Verbose)
-                                Logger.LogInformation("Classroom \"{ClassroomName}\" to be created.", scheduleAcf.ClassroomName);
+                                _logger.LogInformation("Classroom \"{ClassroomName}\" to be created.", scheduleAcf.ClassroomName);
 
                             classroom = new()
                             {
@@ -90,18 +91,18 @@ namespace Phoenix.Api.Ardea.Pullers
                         else
                         {
                             if (Verbose)
-                                Logger.LogInformation("Classroom \"{ClassroomName}\" already exists.", classroom.Name);
+                                _logger.LogInformation("Classroom \"{ClassroomName}\" already exists.", classroom.Name);
 
                             classroomsToUpdate.Add(classroom);
                         }
                     }
 
 
-                    var schedule = await this.scheduleRepository.FindUniqueAsync(courseId, scheduleAcf);
+                    var schedule = await this._scheduleRepository.FindUniqueAsync(courseId, scheduleAcf);
                     if (schedule is null)
                     {
                         if (Verbose)
-                            Logger.LogInformation("Schedule for course with code {CourseCode} on {Day} at {Time} to be created.",
+                            _logger.LogInformation("Schedule for course with code {CourseCode} on {Day} at {Time} to be created.",
                                 scheduleAcf.CourseCode, scheduleAcf.DayString, scheduleAcf.StartTime.ToString("HH:mm"));
 
                         schedule = (Schedule)(ISchedule)scheduleAcf;
@@ -113,7 +114,7 @@ namespace Phoenix.Api.Ardea.Pullers
                     else
                     {
                         if (Verbose)
-                            Logger.LogInformation("Updating schedule for course with code {CourseCode} on {Day} at {Time}.",
+                            _logger.LogInformation("Updating schedule for course with code {CourseCode} on {Day} at {Time}.",
                                 scheduleAcf.CourseCode, scheduleAcf.DayString, scheduleAcf.StartTime.ToString("HH:mm"));
 
                         var scheduleFrom = (Schedule)(ISchedule)scheduleAcf;
@@ -125,24 +126,24 @@ namespace Phoenix.Api.Ardea.Pullers
                 }
             }
 
-            Logger.LogInformation("Creating {ToCreateNum} schedules...", toCreate.Count);
-            var created = await scheduleRepository.CreateRangeAsync(toCreate);
-            Logger.LogInformation("{CreatedNum}/{ToCreateNum} schedules created successfully.",
+            _logger.LogInformation("Creating {ToCreateNum} schedules...", toCreate.Count);
+            var created = await _scheduleRepository.CreateRangeAsync(toCreate);
+            _logger.LogInformation("{CreatedNum}/{ToCreateNum} schedules created successfully.",
                 created.Count(), toCreate.Count);
 
-            Logger.LogInformation("Creating {ToCreateNum} classrooms...", classroomsToCreate.Count);
-            var classroomsCreated = await classroomRepository.CreateRangeAsync(classroomsToCreate);
-            Logger.LogInformation("{CreatedNum}/{ToCreateNum} classrooms created successfully.",
+            _logger.LogInformation("Creating {ToCreateNum} classrooms...", classroomsToCreate.Count);
+            var classroomsCreated = await _classroomRepository.CreateRangeAsync(classroomsToCreate);
+            _logger.LogInformation("{CreatedNum}/{ToCreateNum} classrooms created successfully.",
                 classroomsCreated.Count(), classroomsToCreate.Count);
 
-            Logger.LogInformation("Updating {ToUpdateNum} schedules...", toUpdate.Count);
-            var updated = await scheduleRepository.UpdateRangeAsync(toUpdate, toUpdateFrom);
-            var restored = await scheduleRepository.RestoreRangeAsync(toUpdate);
-            Logger.LogInformation("{UpdatedNum}/{ToUpdateNum} schedules updated successfully.",
+            _logger.LogInformation("Updating {ToUpdateNum} schedules...", toUpdate.Count);
+            var updated = await _scheduleRepository.UpdateRangeAsync(toUpdate);
+            var restored = await _scheduleRepository.RestoreRangeAsync(toUpdate);
+            _logger.LogInformation("{UpdatedNum}/{ToUpdateNum} schedules updated successfully.",
                 updated.Count() + restored.Count(), toUpdate.Count);
 
-            Logger.LogInformation("Schedules & Classrooms synchronization finished.");
-            Logger.LogInformation("-----------------------------------------------------------------");
+            _logger.LogInformation("Schedules & Classrooms synchronization finished.");
+            _logger.LogInformation("-----------------------------------------------------------------");
 
             PulledClassroomIds.AddRange(classroomsCreated.Concat(classroomsToUpdate).Select(c => c.Id).Distinct().ToList());
             PulledIds.AddRange(created.Concat(updated).Select(s => s.Id).Distinct().ToList());
@@ -154,19 +155,19 @@ namespace Phoenix.Api.Ardea.Pullers
         {
             // Classrooms are never obviated
 
-            Logger.LogInformation("-----------------------------------------------------------------");
-            Logger.LogInformation("Schedules obviation started.");
+            _logger.LogInformation("-----------------------------------------------------------------");
+            _logger.LogInformation("Schedules obviation started.");
 
             foreach (var schoolUqPair in SchoolUqsDict)
             {
-                Logger.LogInformation("Obviation of schedules for courses of school \"{SchoolUq}\".", schoolUqPair.Value);
+                _logger.LogInformation("Obviation of schedules for courses of school \"{SchoolUq}\".", schoolUqPair.Value);
 
                 var schoolCoursesUqsDict = CourseUqsDict.Where(kv => kv.Value.SchoolUnique.Equals(schoolUqPair.Value));
                 foreach (var courseUqPair in schoolCoursesUqsDict)
                 {
-                    Logger.LogInformation("Obviation of schedules for course with code {CourseCode}.", courseUqPair.Value.Code);
+                    _logger.LogInformation("Obviation of schedules for course with code {CourseCode}.", courseUqPair.Value.Code);
 
-                    var course = await courseRepository.FindPrimaryAsync(courseUqPair.Key);
+                    var course = await _courseRepository.FindPrimaryAsync(courseUqPair.Key);
                     if (course is null)
                         continue;
 
@@ -174,12 +175,12 @@ namespace Phoenix.Api.Ardea.Pullers
                         .Where(s => !toKeep.Contains(s.Id))
                         .ToList();
 
-                    ObviatedIds.AddRange(await ObviateGroupAsync(toObviate, scheduleRepository));
+                    ObviatedIds.AddRange(await ObviateGroupAsync(toObviate, _scheduleRepository));
                 }
             }
 
-            Logger.LogInformation("Schedules obviation finished.");
-            Logger.LogInformation("-----------------------------------------------------------------");
+            _logger.LogInformation("Schedules obviation finished.");
+            _logger.LogInformation("-----------------------------------------------------------------");
 
             return ObviatedIds;
         }

@@ -9,10 +9,11 @@ namespace Phoenix.Api.Ardea.Pullers
 {
     public class CoursePuller : WPPuller<Course>
     {
-        private readonly CourseRepository courseRepository;
-        private readonly BookRepository bookRepository;
-        private readonly SchoolRepository schoolRepository;
+        private readonly CourseRepository _courseRepository;
+        private readonly BookRepository _bookRepository;
+        private readonly SchoolRepository _schoolRepository;
 
+        // TODO: To Remove?
         private readonly Dictionary<int, string> schoolTimezonesDict;
 
         public List<int> PulledBookIds { get; } = new();
@@ -21,11 +22,11 @@ namespace Phoenix.Api.Ardea.Pullers
 
         public CoursePuller(Dictionary<int, SchoolUnique> schoolUqsDict,
             PhoenixContext phoenixContext, ILogger logger, bool verbose = true) 
-            : base(schoolUqsDict, logger, verbose)
+            : base(schoolUqsDict, phoenixContext, logger, verbose)
         {
-            this.courseRepository = new(phoenixContext);
-            this.bookRepository = new(phoenixContext);
-            this.schoolRepository = new(phoenixContext);
+            this._courseRepository = new(phoenixContext);
+            this._bookRepository = new(phoenixContext);
+            this._schoolRepository = new(phoenixContext);
 
             // TODO: Check where to use
             this.schoolTimezonesDict = Task.Run(() => FindSchoolTimezonesAsync(phoenixContext, schoolUqsDict.Keys)).Result;
@@ -33,8 +34,10 @@ namespace Phoenix.Api.Ardea.Pullers
 
         public override async Task<List<int>> PullAsync()
         {
-            Logger.LogInformation("-----------------------------------------------------------------");
-            Logger.LogInformation("Courses & Books synchronization started");
+            // TODO: How to update books?
+
+            _logger.LogInformation("-----------------------------------------------------------------");
+            _logger.LogInformation("Courses & Books synchronization started");
 
             IEnumerable<Post> coursePosts = await WPClientWrapper.GetPostsAsync(this.PostCategory);
             IEnumerable<Post> filteredPosts;
@@ -50,19 +53,19 @@ namespace Phoenix.Api.Ardea.Pullers
             {
                 filteredPosts = coursePosts.FilterPostsForSchool(schoolUqPair.Value);
                 
-                Logger.LogInformation("{CoursesNumber} courses found for School \"{SchoolUq}\"", 
+                _logger.LogInformation("{CoursesNumber} courses found for School \"{SchoolUq}\"", 
                     filteredPosts.Count(), schoolUqPair.Value.ToString());
 
                 foreach (var coursePost in filteredPosts)
                 {
                     var courseAcf = await WPClientWrapper.GetCourseAcfAsync(coursePost);
                     var courseUq = courseAcf.GetCourseUnique(schoolUqPair.Value);
-                    var course = await courseRepository.FindUniqueAsync(courseUq);
+                    var course = await _courseRepository.FindUniqueAsync(courseUq);
 
                     if (course is null)
                     {
                         if (Verbose)
-                            Logger.LogInformation("Course with code {CourseCode} to be created.", courseUq.Code);
+                            _logger.LogInformation("Course with code {CourseCode} to be created.", courseUq.Code);
 
                         course = (Course)(ICourse)courseAcf;
                         course.SchoolId = schoolUqPair.Key;
@@ -72,7 +75,7 @@ namespace Phoenix.Api.Ardea.Pullers
                     else
                     {
                         if (Verbose)
-                            Logger.LogInformation("Course with code {CourseCode} to be updated.", courseUq.Code);
+                            _logger.LogInformation("Course with code {CourseCode} to be updated.", courseUq.Code);
 
                         toUpdate.Add(course);
                         toUpdateFrom.Add((Course)(ICourse)courseAcf);
@@ -81,24 +84,24 @@ namespace Phoenix.Api.Ardea.Pullers
                     CourseUqsDict.Add(course.Id, courseUq);
 
                     if (Verbose)
-                        Logger.LogInformation("Synchronizing books for course with code {CourseCode}.", courseUq.Code);
+                        _logger.LogInformation("Synchronizing books for course with code {CourseCode}.", courseUq.Code);
 
                     var courseBooks = courseAcf.Books.Cast<Book>();
 
                     foreach (var book in courseBooks)
                     {
-                        var ctxBook = await bookRepository.FindUniqueAsync(book.Name);
+                        var ctxBook = await _bookRepository.FindUniqueAsync(book.Name);
                         if (ctxBook is null)
                         {
                             if (Verbose)
-                                Logger.LogInformation("Book \"{BookName}\" to be created.", book.Name);
+                                _logger.LogInformation("Book \"{BookName}\" to be created.", book.Name);
 
                             booksToCreate.Add(book);
                         }
                         else
                         {
                             if (Verbose)
-                                Logger.LogInformation("Book \"{BookName}\" already exists.", book.Name);
+                                _logger.LogInformation("Book \"{BookName}\" already exists.", book.Name);
 
                             booksToUpdate.Add(ctxBook);
 
@@ -109,7 +112,7 @@ namespace Phoenix.Api.Ardea.Pullers
                     }
 
                     if (Verbose)
-                        Logger.LogInformation("Linking books with course with code {CourseCode}.", courseUq.Code);
+                        _logger.LogInformation("Linking books with course with code {CourseCode}.", courseUq.Code);
 
                     // TODO: To check if books are linked and if old links are deleted
                     // TODO: Check if course objects affects the object in the list. If not, use that one
@@ -118,24 +121,24 @@ namespace Phoenix.Api.Ardea.Pullers
                 }
             }
 
-            Logger.LogInformation("Creating {ToCreateNum} courses...", toCreate.Count);
-            var created = await courseRepository.CreateRangeAsync(toCreate);
-            Logger.LogInformation("{CreatedNum}/{ToCreateNum} courses created successfully.",
+            _logger.LogInformation("Creating {ToCreateNum} courses...", toCreate.Count);
+            var created = await _courseRepository.CreateRangeAsync(toCreate);
+            _logger.LogInformation("{CreatedNum}/{ToCreateNum} courses created successfully.",
                 created.Count(), toCreate.Count);
 
-            Logger.LogInformation("Creating {ToCreateNum} books...", booksToCreate.Count);
-            var booksCreated = await bookRepository.CreateRangeAsync(booksToCreate);
-            Logger.LogInformation("{CreatedNum}/{ToCreateNum} books created successfully.",
+            _logger.LogInformation("Creating {ToCreateNum} books...", booksToCreate.Count);
+            var booksCreated = await _bookRepository.CreateRangeAsync(booksToCreate);
+            _logger.LogInformation("{CreatedNum}/{ToCreateNum} books created successfully.",
                 booksCreated.Count(), booksToCreate.Count);
 
-            Logger.LogInformation("Updating {ToUpdateNum} courses...", toUpdate.Count);
-            var updated = await courseRepository.UpdateRangeAsync(toUpdate, toUpdateFrom);
-            var restored = await courseRepository.RestoreRangeAsync(toUpdate);
-            Logger.LogInformation("{UpdatedNum}/{ToUpdateNum} courses updated successfully.",
+            _logger.LogInformation("Updating {ToUpdateNum} courses...", toUpdate.Count);
+            var updated = await _courseRepository.UpdateRangeAsync(toUpdate);
+            var restored = await _courseRepository.RestoreRangeAsync(toUpdate);
+            _logger.LogInformation("{UpdatedNum}/{ToUpdateNum} courses updated successfully.",
                 updated.Count() + restored.Count(), toUpdate.Count);
 
-            Logger.LogInformation("Courses & Books synchronization finished");
-            Logger.LogInformation("-----------------------------------------------------------------");
+            _logger.LogInformation("Courses & Books synchronization finished");
+            _logger.LogInformation("-----------------------------------------------------------------");
 
             foreach (var course in created.Concat(updated))
                 CourseUqsDict.Add(course.Id, new CourseUnique(new SchoolUnique(course.School.Code), course.Code));
@@ -152,14 +155,14 @@ namespace Phoenix.Api.Ardea.Pullers
 
             IEnumerable<Course> findCoursesForSchool(int schoolId)
             {
-                var school = Task.Run(() => schoolRepository.FindPrimaryAsync(schoolId)).Result;
+                var school = Task.Run(() => _schoolRepository.FindPrimaryAsync(schoolId)).Result;
                 if (school is null)
                     return Enumerable.Empty<Course>();
 
                 return school.Courses;
             }
 
-            return ObviatedIds = await ObviateAllPerSchoolAsync(findCoursesForSchool, courseRepository, toKeep);
+            return ObviatedIds = await ObviateAllPerSchoolAsync(findCoursesForSchool, _courseRepository, toKeep);
         }
     }
 }
