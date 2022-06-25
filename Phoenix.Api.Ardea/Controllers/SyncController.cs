@@ -119,11 +119,11 @@ namespace Phoenix.Api.Ardea.Controllers
                 await schoolPuller.PutAsync();
                 var schoolUqsDict = schoolPuller.SchoolUqsDict;
 
-                return Ok();
-
                 CoursePuller coursePuller = new(schoolUqsDict, _phoenixContext, _logger, _verbose);
                 await coursePuller.PutAsync();
                 var courseUqsDict = coursePuller.CourseUqsDict;
+
+                return Ok();
 
                 SchedulePuller schedulePuller = new(schoolUqsDict, courseUqsDict, _phoenixContext, _logger, _verbose);
                 await schedulePuller.PutAsync();

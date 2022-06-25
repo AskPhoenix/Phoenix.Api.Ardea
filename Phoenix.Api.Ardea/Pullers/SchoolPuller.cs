@@ -20,7 +20,7 @@ namespace Phoenix.Api.Ardea.Pullers
             SchoolUnique? specificSchoolUq = null, bool verbose = true)
             : base(phoenixContext, logger, verbose)
         {
-            this._schoolRepository = new(phoenixContext);
+            _schoolRepository = new(phoenixContext);
 
             this.SpecificSchoolUq = specificSchoolUq;
             this.SpecificSchoolOnly = specificSchoolUq != null;
@@ -59,7 +59,6 @@ namespace Phoenix.Api.Ardea.Pullers
                     if (Verbose)
                         _logger.LogInformation("School {SchoolUq} to be updated.", schoolUq.ToString());
 
-                    _phoenixContext.Entry(school).State = EntityState.Detached;
                     toUpdate.Add(schoolAcf.ToSchool(school));
                 }
             }
