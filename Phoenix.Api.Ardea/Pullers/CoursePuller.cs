@@ -30,7 +30,7 @@ namespace Phoenix.Api.Ardea.Pullers
         public override async Task<List<int>> PullAsync()
         {
             _logger.LogInformation("-----------------------------------------------------------------");
-            _logger.LogInformation("Courses & Books synchronization started");
+            _logger.LogInformation("Courses & Books synchronization started.");
 
             IEnumerable<Post> coursePosts = await WPClientWrapper.GetPostsAsync(this.PostCategory);
             IEnumerable<Post> filteredPosts;
@@ -42,13 +42,12 @@ namespace Phoenix.Api.Ardea.Pullers
             {
                 filteredPosts = coursePosts.FilterPostsForSchool(schoolUqPair.Value);
                 
-                _logger.LogInformation("{CoursesNumber} courses found for School \"{SchoolUq}\"", 
-                    filteredPosts.Count(), schoolUqPair.Value.ToString());
+                _logger.LogInformation("{CoursesNumber} courses found for School \"{SchoolUq}\".", 
+                    filteredPosts.Count(), schoolUqPair.Value);
 
                 foreach (var coursePost in filteredPosts)
                 {
                     var courseAcf = await WPClientWrapper.GetCourseAcfAsync(coursePost);
-                    var booksAcf = courseAcf.GetBooks();
                     var courseUq = courseAcf.GetCourseUnique(schoolUqPair.Value);
                     var course = await _courseRepository.FindUniqueAsync(courseUq);
 
@@ -57,11 +56,11 @@ namespace Phoenix.Api.Ardea.Pullers
 
                     if (Verbose)
                     {
-                        _logger.LogInformation("Synchronizing books for course {CourseUq}.", courseUq);
-                        _logger.LogInformation("{BooksNumber} books found.", booksAcf.Count);
+                        _logger.LogInformation("Synchronizing books for course \"{CourseUq}\".", courseUq);
+                        _logger.LogInformation("{BooksNumber} books found.", courseAcf.Books.Count);
                     }
 
-                    foreach (var bookAcf in booksAcf)
+                    foreach (var bookAcf in courseAcf.Books)
                     {
                         var book = await _bookRepository.FindUniqueAsync(bookAcf.Name);
                         if (book is null)
@@ -99,9 +98,7 @@ namespace Phoenix.Api.Ardea.Pullers
                         if (Verbose)
                             _logger.LogInformation("Course {CourseUq} to be created.", courseUq);
 
-                        course = courseAcf.ToCourse(schoolUqPair.Key);
-                        course.Books = booksFinal.ToHashSet();
-                        
+                        course = courseAcf.ToCourse(schoolUqPair.Key, booksFinal);
                         toCreate.Add(course);
                     }
                     else
@@ -109,16 +106,7 @@ namespace Phoenix.Api.Ardea.Pullers
                         if (Verbose)
                             _logger.LogInformation("Course {CourseUq} to be updated.", courseUq);
 
-                        courseAcf.ToCourse(course);
-
-                        foreach (var bookFinal in booksFinal)
-                            if (!course.Books.Any(b => b.Id == bookFinal.Id))
-                                course.Books.Add(bookFinal);
-
-                        foreach (var bookInitial in course.Books)
-                            if (!booksFinal.Any(b => b.Id == bookInitial.Id))
-                                course.Books.Remove(bookInitial);
-
+                        courseAcf.ToCourse(course, schoolUqPair.Key, booksFinal);
                         toUpdate.Add(course);
                     }
                 }
@@ -140,14 +128,14 @@ namespace Phoenix.Api.Ardea.Pullers
             {
                 _logger.LogInformation("Updating {ToUpdateNum} courses...", toUpdate.Count);
                 updated = (await _courseRepository.UpdateRangeAsync(toUpdate)).ToList();
-                var restored = await _courseRepository.RestoreRangeAsync(toUpdate);
+                await _courseRepository.RestoreRangeAsync(toUpdate);
                 _logger.LogInformation("{UpdatedNum}/{ToUpdateNum} courses updated successfully.",
-                    updated.Count() + restored.Count(), toUpdate.Count);
+                    updated.Count(), toUpdate.Count);
             }
             else
                 _logger.LogInformation("No courses to updated.");
 
-            _logger.LogInformation("Courses & Books synchronization finished");
+            _logger.LogInformation("Courses & Books synchronization finished.");
             _logger.LogInformation("-----------------------------------------------------------------");
 
             foreach (var course in created.Concat(updated))

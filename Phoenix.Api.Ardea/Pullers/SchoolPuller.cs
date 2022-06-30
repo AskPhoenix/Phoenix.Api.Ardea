@@ -49,7 +49,7 @@ namespace Phoenix.Api.Ardea.Pullers
                 if (school is null)
                 {
                     if (Verbose)
-                        _logger.LogInformation("School {SchoolUq} to be created.", schoolUq.ToString());
+                        _logger.LogInformation("School \"{SchoolUq}\" to be created.", schoolUq.ToString());
 
                     school = schoolAcf.ToSchool();
                     toCreate.Add(school);
@@ -57,7 +57,7 @@ namespace Phoenix.Api.Ardea.Pullers
                 else
                 {
                     if (Verbose)
-                        _logger.LogInformation("School {SchoolUq} to be updated.", schoolUq.ToString());
+                        _logger.LogInformation("School \"{SchoolUq}\" to be updated.", schoolUq.ToString());
 
                     toUpdate.Add(schoolAcf.ToSchool(school));
                 }

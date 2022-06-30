@@ -2,10 +2,8 @@
 using Phoenix.Api.Ardea.Pullers;
 using Phoenix.DataHandle.DataEntry;
 using Phoenix.DataHandle.DataEntry.Models.Uniques;
-using Phoenix.DataHandle.Identity;
 using Phoenix.DataHandle.Main.Models;
 using Swashbuckle.AspNetCore.Annotations;
-using WordPressPCL.Models.Exceptions;
 
 namespace Phoenix.Api.Ardea.Controllers
 {
@@ -15,7 +13,8 @@ namespace Phoenix.Api.Ardea.Controllers
     {
         private readonly ILogger<SyncController> _logger;
         private readonly PhoenixContext _phoenixContext;
-        //private readonly ApplicationStore _appStore;    // TODO: Inject
+        // TODO: Inject
+        //private readonly ApplicationStore _appStore;
 
         private readonly bool _verbose = true;
 
@@ -123,18 +122,16 @@ namespace Phoenix.Api.Ardea.Controllers
                 await coursePuller.PutAsync();
                 var courseUqsDict = coursePuller.CourseUqsDict;
 
-                return Ok();
-
                 SchedulePuller schedulePuller = new(schoolUqsDict, courseUqsDict, _phoenixContext, _logger, _verbose);
                 await schedulePuller.PutAsync();
+
+                return Ok();
 
                 //PersonnelPuller personnelPuller = new(schoolUqsDict, courseUqsDict, _phoenixContext, _appStore, _logger, _verbose);
                 //await personnelPuller.PutAsync();
 
                 //ClientPuller clientPuller = new(schoolUqsDict, courseUqsDict, _phoenixContext, _appStore, _logger, _verbose);
                 //await clientPuller.PutAsync();
-
-                return Ok();
             }
             catch (Exception ex)
             {
