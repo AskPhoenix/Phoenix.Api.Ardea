@@ -1,141 +1,278 @@
-﻿using Phoenix.DataHandle.Main;
+﻿using Phoenix.DataHandle.DataEntry;
+using Phoenix.DataHandle.DataEntry.Models.Uniques;
+using Phoenix.DataHandle.Identity;
 using Phoenix.DataHandle.Main.Models;
+using Phoenix.DataHandle.Main.Types;
 using Phoenix.DataHandle.Repositories;
-using Phoenix.DataHandle.WordPress;
-using Phoenix.DataHandle.WordPress.Models;
-using Phoenix.DataHandle.WordPress.Models.Uniques;
-using Phoenix.DataHandle.WordPress.Wrappers;
 using WordPressPCL.Models;
+using User = Phoenix.DataHandle.Main.Models.User;
 
 namespace Phoenix.Api.Ardea.Pullers
 {
-    public class PersonnelPuller : WPPuller<AspNetUsers>
+    public class PersonnelPuller : WPPuller<User>
     {
-        protected readonly AspNetUserRepository aspNetUserRepository;
-        protected readonly SchoolRepository schoolRepository;
+        private readonly UserRepository _userRepository;
+        private readonly SchoolRepository _schoolRepository;
+        private readonly CourseRepository _courseRepository;
+
+        private readonly ApplicationUserManager _appUserManager;
+
+        public override PostCategory PostCategory => PostCategory.Personnel;
 
         public PersonnelPuller(Dictionary<int, SchoolUnique> schoolUqsDict, Dictionary<int, CourseUnique> courseUqsDict,
-            PhoenixContext phoenixContext, ILogger logger, bool verbose = true)
-            : base(schoolUqsDict, courseUqsDict, logger, verbose)
+            ApplicationUserManager appUserManager, PhoenixContext phoenixContext, ILogger logger, bool verbose = true)
+            : base(schoolUqsDict, courseUqsDict, phoenixContext, logger, verbose)
         {
-            this.aspNetUserRepository = new(phoenixContext);
-            this.aspNetUserRepository.Include(u => u.User);
-            this.schoolRepository = new(phoenixContext);
+            _userRepository = new(phoenixContext);
+            _schoolRepository = new(phoenixContext);
+            _courseRepository = new(phoenixContext);
+
+            _appUserManager = appUserManager;
+
+            _userRepository.Include(u => u.Schools);
+            _userRepository.Include(u => u.Courses);
         }
 
-        public override int CategoryId => PostCategoryWrapper.GetCategoryId(PostCategory.Personnel);
+        // TODO: Reduce code that is common for Personnel & Client Users
 
         public override async Task<List<int>> PullAsync()
         {
-            Logger.LogInformation("-----------------------------------------------------------------");
-            Logger.LogInformation("Personnel synchronization started");
+            _logger.LogInformation("-----------------------------------------------------------------");
+            _logger.LogInformation("Personnel synchronization started.");
 
-            IEnumerable<Post> personnelPosts = await WordPressClientWrapper.GetPostsAsync(CategoryId);
+            IEnumerable<Post> personnelPosts = await WPClientWrapper.GetPostsAsync(this.PostCategory);
             IEnumerable<Post> filteredPosts;
 
             foreach (var schoolUqPair in SchoolUqsDict)
             {
                 filteredPosts = personnelPosts.FilterPostsForSchool(schoolUqPair.Value);
 
-                Logger.LogInformation("{PersonnelNumber} Staff members found for School \"{SchoolUq}\"",
-                    filteredPosts.Count(), schoolUqPair.Value.ToString());
+                _logger.LogInformation("{PersonnelNumber} Staff members found for School \"{SchoolUq}\".",
+                    filteredPosts.Count(), schoolUqPair.Value);
+
+                var school = await _schoolRepository.FindUniqueAsync(schoolUqPair.Value);
 
                 foreach (var personnelPost in filteredPosts)
                 {
-                    var personnelAcf = (PersonnelACF)(await WordPressClientWrapper.GetAcfAsync<PersonnelACF>(personnelPost.Id)).WithTitleCase();
-                    personnelAcf.SchoolUnique = schoolUqPair.Value;
+                    var personnelAcf = await WPClientWrapper.GetPersonnelAcfAsync(personnelPost);
+                    var appUser = await _appUserManager.FindByPhoneNumberAsync(personnelAcf.PhoneString);
+                    User? user;
 
-                    var aspNetUser = await aspNetUserRepository.Find(checkUnique: personnelAcf.MatchesUnique);
-                    if (aspNetUser is null)
+                    if (appUser is null)
                     {
                         if (Verbose)
-                            Logger.LogInformation("Adding Personnel User with phone number: {UserPhone}",
+                            _logger.LogInformation("Creating Personnel User with phone number \"{UserPhone}\"...",
                                 personnelAcf.PhoneString);
 
-                        aspNetUser = personnelAcf.ToContext();
-                        aspNetUser.User = personnelAcf.ExtractUser();
-                        aspNetUser.UserName = PersonnelACF.GetUserName(aspNetUser.User, schoolUqPair.Key, aspNetUser.PhoneNumber);
-                        aspNetUser.NormalizedUserName = aspNetUser.UserName.ToUpperInvariant();
+                        // Application User
+                        appUser = new ApplicationUser()
+                        {
+                            PhoneNumber = personnelAcf.PhoneString,
+                            PhoneNumberConfirmed = false,
+                            UserName = personnelAcf.GenerateUserName(schoolUqPair.Value)
+                        }.Normalize();
 
-                        aspNetUserRepository.Create(aspNetUser);
+                        var identityRes = await _appUserManager.CreateAsync(appUser);
+                        if (identityRes.Succeeded)
+                        {
+                            if (Verbose)
+                                _logger.LogInformation("Application User created successfully.");
+                        }
+                        else
+                        {
+                            if (Verbose)
+                                _logger.LogError("Application User could not be created.");
 
-                        aspNetUserRepository.LinkSchool(aspNetUser, schoolUqPair.Key);
+                            continue;
+                        }
+
+                        // Phoenix User
+                        user = personnelAcf.ToUser(appUser.Id);
+                        await _userRepository.CreateAsync(user);
+                        if (Verbose)
+                            _logger.LogInformation("Phoenix User created successfully.");
                     }
                     else
                     {
                         if (Verbose)
-                            Logger.LogInformation("Updating Personnel User with phone number: {UserPhone}",
-                                aspNetUser.PhoneNumber);
+                            _logger.LogInformation("Updating Personnel User with phone number \"{UserPhone}\"...",
+                                personnelAcf.PhoneString);
 
-                        var userFrom = personnelAcf.ExtractUser();
-                        var aspNetUserFrom = personnelAcf.ToContext();
-                        aspNetUserFrom.UserName = PersonnelACF.GetUserName(userFrom, schoolUqPair.Key, aspNetUser.PhoneNumber);
-                        aspNetUserFrom.NormalizedUserName = aspNetUserFrom.UserName.ToUpperInvariant();
+                        // Application User
+                        appUser.UserName = personnelAcf.GenerateUserName(schoolUqPair.Value);
+                        appUser.Normalize();
 
-                        aspNetUserRepository.Update(aspNetUser, aspNetUserFrom, userFrom);
-                        aspNetUserRepository.Restore(aspNetUser);
+                        var identityRes = await _appUserManager.UpdateAsync(appUser);
+                        if (identityRes.Succeeded)
+                        {
+                            if (Verbose)
+                                _logger.LogInformation("Application User updated successfully.");
+                        }
+                        else
+                        {
+                            if (Verbose)
+                                _logger.LogError("Application User could not be updated.");
+
+                            continue;
+                        }
+
+                        // Phoenix User
+                        user = await _userRepository.FindPrimaryAsync(appUser.Id);
+                        if (user is null)
+                        {
+                            user = personnelAcf.ToUser(appUser.Id);
+                            await _userRepository.CreateAsync(user);
+
+                            if (Verbose)
+                                _logger.LogInformation("Phoenix User created successfully.");
+                        }
+                        else
+                        {
+                            personnelAcf.ToUser(user, appUser.Id);
+                            await _userRepository.UpdateAsync(user);
+                            await _userRepository.RestoreAsync(user);
+
+                            if (Verbose)
+                                _logger.LogInformation("Phoenix User updated successfully.");
+                        }
                     }
 
-                    PulledIds.Add(aspNetUser.Id);
+                    PulledIds.Add(appUser.Id);
 
+                    // Link Roles
                     if (Verbose)
-                        Logger.LogInformation("Linking Personnel User with phone number {UserPhone} with their roles",
-                            aspNetUser.PhoneNumber);
-
-                    if (!aspNetUserRepository.HasRole(aspNetUser, personnelAcf.RoleType))
-                        aspNetUserRepository.LinkRole(aspNetUser, personnelAcf.RoleType);
+                        _logger.LogInformation("Assigning the role \"{Role}\"...", personnelAcf.Role.ToFriendlyString());
 
                     // Delete any other roles the user might have
                     // The only possible scenario where 2 roles are allowed is: a non-client role + parent
-                    aspNetUserRepository.DeleteRoles(aspNetUser, new Role[2] { personnelAcf.RoleType, Role.Parent });
+                    await _appUserManager.RemoveFromAllRolesButOneAsync(appUser, personnelAcf.Role.ToNormalizedString());
+
+                    if (!await _appUserManager.IsInRoleAsync(appUser, personnelAcf.Role.ToNormalizedString()))
+                       await _appUserManager.AddToRoleAsync(appUser, personnelAcf.Role.ToNormalizedString());
 
                     if (Verbose)
-                        Logger.LogInformation("Linking Personnel User with phone number {UserPhone} with their courses",
-                            aspNetUser.PhoneNumber);
+                        _logger.LogInformation("Role \"{Role}\" assigned successfully.", personnelAcf.Role.ToFriendlyString());
 
-                    var userCourseCodes = personnelAcf.ExtractCourseCodes();
-                    var userCourseUqs = userCourseCodes.Select(c => new CourseUnique(schoolUqPair.Value, c));
-                    var userCourseIds = CourseUqsDict.Where(kv => userCourseUqs.Contains(kv.Value)).Select(kv => kv.Key);
+                    // Link School
+                    if (!user.Schools.Contains(school!))
+                    {
+                        if (Verbose)
+                            _logger.LogInformation("Subscribing to school...");
 
-                    aspNetUserRepository.LinkCourses(aspNetUser, userCourseIds.ToList(), deleteAdditionalLinks: true);
+                        user.Schools.Add(school!);
+                        await _userRepository.UpdateAsync(user);
+
+                        if (Verbose)
+                            _logger.LogInformation("Subscribed to school successfully.");
+                    }
+
+                    // Link Courses
+                    if (Verbose)
+                        _logger.LogInformation("Enrolling to courses...");
+
+                    var coursesInitial = user.Courses;
+                    List<Course> coursesFinal;
+
+                    if (!personnelAcf.CourseCodes.Any())
+                    {
+                        coursesFinal = _courseRepository.Find()
+                            .Where(c => c.SchoolId == schoolUqPair.Key)
+                            .ToList();
+                    }
+                    else
+                    {
+                        coursesFinal = new();
+                        foreach (var courseCode in personnelAcf.CourseCodes)
+                        {
+                            var courseFinal = await _courseRepository.FindUniqueAsync(new(schoolUqPair.Value, courseCode));
+                            if (courseFinal is null)
+                            {
+                                _logger.LogError("There is no course with code {CourseCode}.", courseCode);
+                                continue;
+                            }
+
+                            coursesFinal.Add(courseFinal);
+                        }
+                    }
+
+                    // Enroll user to courses they're not enrolled
+                    foreach (var courseFinal in coursesFinal)
+                        if (!user.Courses.Contains(courseFinal))
+                            user.Courses.Add(courseFinal);
+
+                    // Remove user from courses they're not enrolled anymore
+                    foreach (var courseInitial in coursesInitial)
+                        if (!coursesFinal.Contains(courseInitial))
+                            user.Courses.Remove(courseInitial);
+
+                    await _userRepository.UpdateAsync(user);
+
+                    if (Verbose)
+                        _logger.LogInformation("Enrolled to {FinalCoursesNum} courses successfully.",
+                            coursesFinal.Count);
                 }
             }
 
-            Logger.LogInformation("Personnel synchronization finished");
-            Logger.LogInformation("-----------------------------------------------------------------");
+            _logger.LogInformation("Personnel synchronization finished.");
+            _logger.LogInformation("-----------------------------------------------------------------");
 
             return PulledIds = PulledIds.Distinct().ToList();
         }
 
         public override async Task<List<int>> ObviateAsync(List<int> toKeep)
         {
-            return ObviatedIds = await ObviateAllPerSchoolAsync(schoolRepository.FindPersonnel, aspNetUserRepository, toKeep);
-        }
-
-        protected override int? ObviateUnit(AspNetUsers user, ObviableRepository<AspNetUsers> repository)
-        {
-            var roles = aspNetUserRepository.FindRoles(user).Select(r => r.Type);
-
-            if (roles.All(r => r.IsPersonnel()))
+            IEnumerable<User> findPersonnelForSchool(int schoolId)
             {
-                if (Verbose)
-                    Logger.LogInformation("Deleting all roles from personnel user with id {UserId}", user.Id);
-                aspNetUserRepository.DeleteRoles(user);
+                var school = Task.Run(() => _schoolRepository.FindPrimaryAsync(schoolId)).Result;
+                if (school is null)
+                    return Enumerable.Empty<User>();
 
-                if (Verbose)
-                    Logger.LogInformation("Assigning \"None\" role to personnel user with id {UserId}", user.Id);
-                aspNetUserRepository.LinkRole(user, Role.None);
-
-                return base.ObviateUnit(user, repository);
+                return school.Users;
             }
 
-            Logger.LogWarning("Personnel user with id {UserId} obviation is skipped because they have client roles too", user.Id);
-            
-            if (Verbose)
-                Logger.LogInformation("Deleting non-client roles from personnel user with id {UserId}", user.Id);
-            aspNetUserRepository.DeleteRoles(user, roles.Where(r => r.IsClient()).ToList());
+            return ObviatedIds = await ObviateAllPerSchoolAsync(findPersonnelForSchool, _userRepository, toKeep);
+        }
 
-            return null;
+        protected override async Task<List<int>> ObviateGroupAsync(IList<User> toObviate, ObviableRepository<User> userRepository)
+        {
+            var obviatedIds = await base.ObviateGroupAsync(toObviate, userRepository);
+            await this.DeassignRolesFromObviatedAsync(toObviate);
+
+            return obviatedIds;
+        }
+
+        protected async Task DeassignRolesFromObviatedAsync(IList<User> toObviate)
+        {
+            if (Verbose)
+                _logger.LogInformation("Deassigning Roles from obviated Users.");
+
+            foreach (var user in toObviate)
+            {
+                var appUser = await _appUserManager.FindByIdAsync(user.AspNetUserId.ToString());
+                var appRoleRanks = await _appUserManager.GetRoleRanksAsync(appUser);
+
+                if (appRoleRanks.All(r => r.IsStaffOrBackend()))
+                {
+                    if (Verbose)
+                        _logger.LogInformation("Deleting all roles from Personnel User with id {UserId}...", appUser.Id);
+                    await _appUserManager.RemoveFromRolesAsync(appUser, appRoleRanks.Select(rr => rr.ToNormalizedString()));
+
+                    if (Verbose)
+                        _logger.LogInformation("Assigning \"None\" role to Personnel User with id {UserId}...", appUser.Id);
+                    await _appUserManager.AddToRoleAsync(appUser, RoleRank.None.ToNormalizedString());
+
+                    continue;
+                }
+
+                if (Verbose)
+                {
+                    _logger.LogWarning("Personnel user with id {AppUserId} obviation is skipped because they have client roles too.", appUser.Id);
+                    _logger.LogInformation("Deleting non-client roles from personnel user with id {AppUserId}...", appUser.Id);
+                }
+
+                var rolesToRemove = appRoleRanks.Where(r => !r.IsClient()).Select(r => r.ToNormalizedString());
+                await _appUserManager.RemoveFromRolesAsync(appUser, rolesToRemove);
+            }
         }
     }
 }

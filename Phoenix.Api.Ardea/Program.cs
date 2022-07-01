@@ -1,7 +1,22 @@
 using Microsoft.EntityFrameworkCore;
+using Phoenix.DataHandle.Identity;
 using Phoenix.DataHandle.Main.Models;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Add services to the container.
+Action<DbContextOptionsBuilder> buildDbContextOptions = o => o
+    .UseLazyLoadingProxies()
+    .UseSqlServer(builder.Configuration.GetConnectionString("PhoenixConnection"));
+
+builder.Services.AddDbContext<ApplicationContext>(buildDbContextOptions);
+builder.Services.AddDbContext<PhoenixContext>(buildDbContextOptions);
+
+builder.Services.AddIdentity<ApplicationUser, ApplicationRole>()
+    .AddRoles<ApplicationRole>()
+    .AddUserStore<ApplicationStore>()
+    .AddUserManager<ApplicationUserManager>()
+    .AddEntityFrameworkStores<ApplicationContext>();
 
 // Add services to the container.
 
@@ -22,9 +37,6 @@ builder.Services.AddSwaggerGen(o =>
 });
 
 builder.Logging.AddSimpleConsole(o => o.SingleLine = true);
-
-string phoenixConnection = builder.Configuration.GetConnectionString("PhoenixConnection");
-builder.Services.AddDbContext<PhoenixContext>(o => o.UseLazyLoadingProxies().UseSqlServer(phoenixConnection));
 
 var app = builder.Build();
 

@@ -2,6 +2,7 @@
 using Phoenix.Api.Ardea.Pullers;
 using Phoenix.DataHandle.DataEntry;
 using Phoenix.DataHandle.DataEntry.Models.Uniques;
+using Phoenix.DataHandle.Identity;
 using Phoenix.DataHandle.Main.Models;
 using Swashbuckle.AspNetCore.Annotations;
 
@@ -13,20 +14,19 @@ namespace Phoenix.Api.Ardea.Controllers
     {
         private readonly ILogger<SyncController> _logger;
         private readonly PhoenixContext _phoenixContext;
-        // TODO: Inject
-        //private readonly ApplicationStore _appStore;
+        private readonly ApplicationUserManager _appUserManager;
 
         private readonly bool _verbose = true;
 
         public SyncController(
             ILogger<SyncController> logger,
             PhoenixContext phoenixContext,
-            //ApplicationStore applicationStore,
+            ApplicationUserManager appUserManager,
             IConfiguration configuration)
         {
             _logger = logger;
             _phoenixContext = phoenixContext;
-            //_appStore = applicationStore;
+            _appUserManager = appUserManager;
             
             if (bool.TryParse(configuration["Verbose"], out bool verbose))
                 _verbose = verbose;
@@ -125,10 +125,10 @@ namespace Phoenix.Api.Ardea.Controllers
                 SchedulePuller schedulePuller = new(schoolUqsDict, courseUqsDict, _phoenixContext, _logger, _verbose);
                 await schedulePuller.PutAsync();
 
-                return Ok();
+                PersonnelPuller personnelPuller = new(schoolUqsDict, courseUqsDict, _appUserManager, _phoenixContext, _logger, _verbose);
+                await personnelPuller.PutAsync();
 
-                //PersonnelPuller personnelPuller = new(schoolUqsDict, courseUqsDict, _phoenixContext, _appStore, _logger, _verbose);
-                //await personnelPuller.PutAsync();
+                return Ok();
 
                 //ClientPuller clientPuller = new(schoolUqsDict, courseUqsDict, _phoenixContext, _appStore, _logger, _verbose);
                 //await clientPuller.PutAsync();

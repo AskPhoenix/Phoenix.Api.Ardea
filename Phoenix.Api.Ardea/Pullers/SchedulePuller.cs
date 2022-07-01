@@ -25,6 +25,8 @@ namespace Phoenix.Api.Ardea.Pullers
             _courseRepository = new(phoenixContext);
         }
 
+        // TODO: Create/Update Lectures with Schedule?
+
         public override async Task<List<int>> PullAsync()
         {
             _logger.LogInformation("-----------------------------------------------------------------");

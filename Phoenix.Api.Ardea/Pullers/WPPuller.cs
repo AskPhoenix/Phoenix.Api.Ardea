@@ -89,7 +89,7 @@ namespace Phoenix.Api.Ardea.Pullers
             return allObviatedIds;
         }
 
-        protected async Task<List<int>> ObviateGroupAsync(IList<TObviable> toObviate, ObviableRepository<TObviable> repository)
+        protected virtual async Task<List<int>> ObviateGroupAsync(IList<TObviable> toObviate, ObviableRepository<TObviable> repository)
         {
             if (!toObviate.Any())
             {
