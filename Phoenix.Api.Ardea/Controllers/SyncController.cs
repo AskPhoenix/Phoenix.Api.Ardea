@@ -16,6 +16,7 @@ namespace Phoenix.Api.Ardea.Controllers
         private readonly ILogger<SyncController> _logger;
         private readonly PhoenixContext _phoenixContext;
         private readonly ApplicationUserManager _appUserManager;
+        private readonly IConfiguration _configuration;
         private readonly SchoolRepository _schoolRepository;
 
         private readonly bool _verbose = true;
@@ -34,6 +35,7 @@ namespace Phoenix.Api.Ardea.Controllers
             _logger = logger;
             _phoenixContext = phoenixContext;
             _appUserManager = appUserManager;
+            _configuration = configuration;
             _schoolRepository = new(phoenixContext);
             
             if (bool.TryParse(configuration["Verbose"], out bool verbose))
@@ -197,7 +199,7 @@ namespace Phoenix.Api.Ardea.Controllers
                 var dict = await this.PutInitAsync(code);
 
                 PersonnelPuller personnelPuller = new(dict.Item1, dict.Item2,
-                    _appUserManager, _phoenixContext, _logger, _verbose);
+                    _appUserManager, _configuration["BackendDefPass"], _phoenixContext, _logger, _verbose);
                 await personnelPuller.PutAsync();
             }
             catch (ArgumentException ex)
@@ -236,10 +238,12 @@ namespace Phoenix.Api.Ardea.Controllers
                 await coursePuller.PutAsync();
                 var courseUqsDict = coursePuller.CourseUqsDict;
 
-                SchedulePuller schedulePuller = new(schoolUqsDict, courseUqsDict, _phoenixContext, _logger, _verbose);
+                SchedulePuller schedulePuller = new(schoolUqsDict, courseUqsDict,
+                    _phoenixContext, _logger, _verbose);
                 await schedulePuller.PutAsync();
 
-                PersonnelPuller personnelPuller = new(schoolUqsDict, courseUqsDict, _appUserManager, _phoenixContext, _logger, _verbose);
+                PersonnelPuller personnelPuller = new(schoolUqsDict, courseUqsDict,
+                    _appUserManager, _configuration["BackendDefPass"], _phoenixContext, _logger, _verbose);
                 await personnelPuller.PutAsync();
 
                 return Ok();

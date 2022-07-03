@@ -16,12 +16,17 @@ namespace Phoenix.Api.Ardea.Pullers
 
         private readonly ApplicationUserManager _appUserManager;
 
+        private string BackendDefPass { get; }
+
         public override PostCategory PostCategory => PostCategory.Personnel;
 
         public PersonnelPuller(Dictionary<int, SchoolUnique> schoolUqsDict, Dictionary<int, CourseUnique> courseUqsDict,
-            ApplicationUserManager appUserManager, PhoenixContext phoenixContext, ILogger logger, bool verbose = true)
+            ApplicationUserManager appUserManager, string backendDefPass,
+            PhoenixContext phoenixContext, ILogger logger, bool verbose = true)
             : base(schoolUqsDict, courseUqsDict, phoenixContext, logger, verbose)
         {
+            this.BackendDefPass = backendDefPass;
+
             _userRepository = new(phoenixContext);
             _courseRepository = new(phoenixContext);
 
@@ -83,6 +88,10 @@ namespace Phoenix.Api.Ardea.Pullers
 
                             continue;
                         }
+
+                        // Create Password for Backend Users
+                        if (personnelAcf.Role.IsBackend())
+                            await _appUserManager.AddPasswordAsync(appUser, this.BackendDefPass);
 
                         // Phoenix User
                         user = personnelAcf.ToUser(appUser.Id);
@@ -150,6 +159,8 @@ namespace Phoenix.Api.Ardea.Pullers
 
                     if (Verbose)
                         _logger.LogInformation("Role \"{Role}\" assigned successfully.", personnelAcf.Role.ToFriendlyString());
+
+                    
 
                     // Link School
                     if (!user.Schools.Contains(school!))
