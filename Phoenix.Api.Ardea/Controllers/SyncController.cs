@@ -4,6 +4,7 @@ using Phoenix.DataHandle.DataEntry;
 using Phoenix.DataHandle.DataEntry.Models.Uniques;
 using Phoenix.DataHandle.Identity;
 using Phoenix.DataHandle.Main.Models;
+using Phoenix.DataHandle.Repositories;
 using Swashbuckle.AspNetCore.Annotations;
 
 namespace Phoenix.Api.Ardea.Controllers
@@ -15,8 +16,14 @@ namespace Phoenix.Api.Ardea.Controllers
         private readonly ILogger<SyncController> _logger;
         private readonly PhoenixContext _phoenixContext;
         private readonly ApplicationUserManager _appUserManager;
+        private readonly SchoolRepository _schoolRepository;
 
         private readonly bool _verbose = true;
+
+        private const string MSG200 = "Data synchronization finished with no problems.";
+        private const string MSG400 = "The \"school code\" parameter is mal-formed.";
+        private const string ERR_SC = "There is no school with the specified code.";
+        private const string DES_P1 = "The school code.";
 
         public SyncController(
             ILogger<SyncController> logger,
@@ -27,6 +34,7 @@ namespace Phoenix.Api.Ardea.Controllers
             _logger = logger;
             _phoenixContext = phoenixContext;
             _appUserManager = appUserManager;
+            _schoolRepository = new(phoenixContext);
             
             if (bool.TryParse(configuration["Verbose"], out bool verbose))
                 _verbose = verbose;
@@ -53,68 +61,174 @@ namespace Phoenix.Api.Ardea.Controllers
             }
         }
 
-        [HttpPut("/specific/post/{title}")]
-        [SwaggerOperation(Summary = "Synchronize data for a specific school by the WP post title.")]
-        [SwaggerResponse(StatusCodes.Status200OK, "Data synchronization finished with no problems.")]
-        [SwaggerResponse(StatusCodes.Status400BadRequest, "The \"post title\" parameter is mal-formed.")]
-        public async Task<IActionResult> PutSchoolDataAsync(
-            [SwaggerParameter(Description = "The WP post title.", Required = true)]
-            string title)
+        private bool TryGetSchoolUq(int code, out SchoolUnique schoolUq)
         {
-            if (string.IsNullOrWhiteSpace(title))
-                return BadRequest();
-
-            SchoolUnique specificSchoolUq;
             try
             {
-                specificSchoolUq = new(title);
+                schoolUq = new(code);
+                return true;
             }
             catch (ArgumentException ex)
             {
                 _logger.LogCritical("{ExceptionMsg}", ex.Message);
-                return BadRequest(ex.Message);
             }
 
-            return await PutSchoolDataAsync(specificSchoolUq);
+            schoolUq = new(0);
+            return false;
         }
 
-        [HttpPut("/specific/code/{code}")]
-        [SwaggerOperation(Summary = "Synchronize data for a specific school by the school code.")]
-        [SwaggerResponse(StatusCodes.Status200OK, "Data synchronization finished with no problems.")]
-        [SwaggerResponse(StatusCodes.Status400BadRequest, "The \"school code\" parameter is mal-formed.")]
-        public async Task<IActionResult> PutSchoolDataAsync(
-            [SwaggerParameter(Description = "The school code.", Required = true)]
+        private async Task<Tuple<Dictionary<int, SchoolUnique>, Dictionary<int, CourseUnique>>> PutInitAsync(int code)
+        {
+            if (!TryGetSchoolUq(code, out SchoolUnique specificSchoolUq))
+                throw new ArgumentException(MSG400);
+
+            var school = await _schoolRepository.FindUniqueAsync(specificSchoolUq);
+            if (school is null)
+                throw new ArgumentException(ERR_SC);
+
+            var schoolUqsDict = new Dictionary<int, SchoolUnique>(1) { { school.Id, specificSchoolUq } };
+            var courseUqsDict = new Dictionary<int, CourseUnique>(
+                school.Courses.Select(c => new KeyValuePair<int, CourseUnique>(c.Id, new(specificSchoolUq, c.Code))));
+
+            return new(schoolUqsDict, courseUqsDict);
+        }
+
+        [HttpPut("/specific/{code}")]
+        [SwaggerOperation(Summary = "Synchronize all data for a specific school by its code.")]
+        [SwaggerResponse(StatusCodes.Status200OK, MSG200)]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, MSG400)]
+        
+        public async Task<IActionResult> PutAllForSchoolAsync(
+            [SwaggerParameter(Description = DES_P1, Required = true)]
             int code)
         {
-            SchoolUnique specificSchoolUq;
+            if (!TryGetSchoolUq(code, out SchoolUnique specificSchoolUq))
+                return BadRequest(MSG400);
+
+            return await this.PutAllAsync(specificSchoolUq);
+        }
+
+        [HttpPut("/specific/{code}/school_info")]
+        [SwaggerOperation(Summary = "Synchronize school info for a specific school by its code.")]
+        [SwaggerResponse(StatusCodes.Status200OK, MSG200)]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, MSG400)]
+
+        public async Task<IActionResult> PutSchoolInfoForSchoolAsync(
+            [SwaggerParameter(Description = DES_P1, Required = true)]
+            int code)
+        {
+            if (!TryGetSchoolUq(code, out SchoolUnique specificSchoolUq))
+                return BadRequest(MSG400);
+
+            SchoolPuller schoolPuller = new(specificSchoolUq, _phoenixContext, _logger, _verbose);
+            await schoolPuller.PutAsync();
+
+            return Ok();
+        }
+
+        [HttpPut("/specific/{code}/courses")]
+        [SwaggerOperation(Summary = "Synchronize courses for a specific school by its code.")]
+        [SwaggerResponse(StatusCodes.Status200OK, MSG200)]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, MSG400)]
+        public async Task<IActionResult> PutCoursesForSchoolAsync(
+            [SwaggerParameter(Description = DES_P1, Required = true)]
+            int code)
+        {
             try
             {
-                specificSchoolUq = new(code);
+                var dict = await this.PutInitAsync(code);
+
+                CoursePuller coursePuller = new(dict.Item1, _phoenixContext, _logger, _verbose);
+                await coursePuller.PutAsync();
             }
             catch (ArgumentException ex)
             {
                 _logger.LogCritical("{ExceptionMsg}", ex.Message);
                 return BadRequest(ex.Message);
             }
+            catch (Exception ex)
+            {
+                _logger.LogCritical("{ExceptionMsg}", ex.Message);
+                return StatusCode(StatusCodes.Status500InternalServerError);
+            }
 
-            return await PutSchoolDataAsync(specificSchoolUq);
+            return Ok();
+        }
+
+        [HttpPut("/specific/{code}/schedules")]
+        [SwaggerOperation(Summary = "Synchronize schedules for a specific school by its code.")]
+        [SwaggerResponse(StatusCodes.Status200OK, MSG200)]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, MSG400)]
+        public async Task<IActionResult> PutSchedulesForSchoolAsync(
+            [SwaggerParameter(Description = DES_P1, Required = true)]
+            int code)
+        {
+            try
+            {
+                var dict = await this.PutInitAsync(code);
+
+                SchedulePuller schedulePuller = new(dict.Item1, dict.Item2, _phoenixContext, _logger, _verbose);
+                await schedulePuller.PutAsync();
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogCritical("{ExceptionMsg}", ex.Message);
+                return BadRequest(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogCritical("{ExceptionMsg}", ex.Message);
+                return StatusCode(StatusCodes.Status500InternalServerError);
+            }
+
+            return Ok();
+        }
+
+        [HttpPut("/specific/{code}/personnel")]
+        [SwaggerOperation(Summary = "Synchronize personnel for a specific school by its code.")]
+        [SwaggerResponse(StatusCodes.Status200OK, MSG200)]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, MSG400)]
+        public async Task<IActionResult> PutPersonnelForSchoolAsync(
+            [SwaggerParameter(Description = DES_P1, Required = true)]
+            int code)
+        {
+            try
+            {
+                var dict = await this.PutInitAsync(code);
+
+                PersonnelPuller personnelPuller = new(dict.Item1, dict.Item2,
+                    _appUserManager, _phoenixContext, _logger, _verbose);
+                await personnelPuller.PutAsync();
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogCritical("{ExceptionMsg}", ex.Message);
+                return BadRequest(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogCritical("{ExceptionMsg}", ex.Message);
+                return StatusCode(StatusCodes.Status500InternalServerError);
+            }
+
+            return Ok();
         }
 
         [HttpPut("/all")]
-        [SwaggerOperation(Summary = "Synchronize data for all schools.")]
-        [SwaggerResponse(StatusCodes.Status200OK, "Data synchronization finished with no problems.")]
-        public async Task<IActionResult> PutSchoolDataAsync()
+        [SwaggerOperation(Summary = "Synchronize all data for all schools.")]
+        [SwaggerResponse(StatusCodes.Status200OK, MSG200)]
+        public async Task<IActionResult> PutAllAsync()
         {
-            return await PutSchoolDataAsync(specificSchoolUq: null);
+            return await this.PutAllAsync(specificSchoolUq: null);
         }
 
-        private async Task<IActionResult> PutSchoolDataAsync(SchoolUnique? specificSchoolUq)
+        private async Task<IActionResult> PutAllAsync(SchoolUnique? specificSchoolUq)
         {
             try
             {
                 // Always await async calls on the same DBContext instance
 
-                SchoolPuller schoolPuller = new(_phoenixContext, _logger, specificSchoolUq, _verbose);
+                SchoolPuller schoolPuller = new(specificSchoolUq, _phoenixContext, _logger, _verbose);
                 await schoolPuller.PutAsync();
                 var schoolUqsDict = schoolPuller.SchoolUqsDict;
 

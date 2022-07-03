@@ -10,19 +10,16 @@ namespace Phoenix.Api.Ardea.Pullers
     {
         private readonly CourseRepository _courseRepository;
         private readonly BookRepository _bookRepository;
-        private readonly SchoolRepository _schoolRepository;
-
         public List<int> PulledBookIds { get; set; } = new();
 
         public override PostCategory PostCategory => PostCategory.Course;
 
         public CoursePuller(Dictionary<int, SchoolUnique> schoolUqsDict,
-            PhoenixContext phoenixContext, ILogger logger, bool verbose = true) 
+            PhoenixContext phoenixContext, ILogger logger, bool verbose = true)
             : base(schoolUqsDict, phoenixContext, logger, verbose)
         {
             _courseRepository = new(phoenixContext);
             _bookRepository = new(phoenixContext);
-            _schoolRepository = new(phoenixContext);
 
             _courseRepository.Include(c => c.Books);
         }

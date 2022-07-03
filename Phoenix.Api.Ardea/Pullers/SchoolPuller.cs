@@ -2,28 +2,22 @@
 using Phoenix.DataHandle.DataEntry;
 using Phoenix.DataHandle.DataEntry.Models.Uniques;
 using Phoenix.DataHandle.Main.Models;
-using Phoenix.DataHandle.Repositories;
 using WordPressPCL.Models;
 
 namespace Phoenix.Api.Ardea.Pullers
 {
     public class SchoolPuller : WPPuller<School>
     {
-        private readonly SchoolRepository _schoolRepository;
-
-        public SchoolUnique? SpecificSchoolUq { get; }
-        public bool SpecificSchoolOnly { get; }
+        public SchoolUnique? SpecificSchoolUq { get; protected set; }
+        public bool SpecificSchoolOnly => this.SpecificSchoolUq is not null;
 
         public override PostCategory PostCategory => PostCategory.SchoolInformation;
 
-        public SchoolPuller(PhoenixContext phoenixContext, ILogger logger, 
-            SchoolUnique? specificSchoolUq = null, bool verbose = true)
+        public SchoolPuller(SchoolUnique? specificSchoolUq,
+            PhoenixContext phoenixContext, ILogger logger, bool verbose = true)
             : base(phoenixContext, logger, verbose)
         {
-            _schoolRepository = new(phoenixContext);
-
             this.SpecificSchoolUq = specificSchoolUq;
-            this.SpecificSchoolOnly = specificSchoolUq != null;
         }
 
         public override async Task<List<int>> PullAsync()

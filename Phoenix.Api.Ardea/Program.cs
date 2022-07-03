@@ -36,16 +36,17 @@ builder.Services.AddSwaggerGen(o =>
     });
 });
 
+// TODO: Log to file
 builder.Logging.AddSimpleConsole(o => o.SingleLine = true);
 
 var app = builder.Build();
 
+// TODO: Add Authentication
+
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI(o => o.SwaggerEndpoint("/swagger/v3/swagger.json", "Ardea v3"));
-}
+// if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
+app.UseSwagger();
+app.UseSwaggerUI(o => o.SwaggerEndpoint("/swagger/v3/swagger.json", "Ardea v3"));
 
 app.UseHttpsRedirection();
 

@@ -12,7 +12,6 @@ namespace Phoenix.Api.Ardea.Pullers
     public class PersonnelPuller : WPPuller<User>
     {
         private readonly UserRepository _userRepository;
-        private readonly SchoolRepository _schoolRepository;
         private readonly CourseRepository _courseRepository;
 
         private readonly ApplicationUserManager _appUserManager;
@@ -24,7 +23,6 @@ namespace Phoenix.Api.Ardea.Pullers
             : base(schoolUqsDict, courseUqsDict, phoenixContext, logger, verbose)
         {
             _userRepository = new(phoenixContext);
-            _schoolRepository = new(phoenixContext);
             _courseRepository = new(phoenixContext);
 
             _appUserManager = appUserManager;
@@ -167,6 +165,7 @@ namespace Phoenix.Api.Ardea.Pullers
                     }
 
                     // Link Courses
+                    // TODO: Use CourseUqsDict?
                     if (Verbose)
                         _logger.LogInformation("Enrolling to courses...");
 

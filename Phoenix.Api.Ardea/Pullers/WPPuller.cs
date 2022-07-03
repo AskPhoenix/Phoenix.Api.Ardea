@@ -10,11 +10,12 @@ namespace Phoenix.Api.Ardea.Pullers
         where TObviable : class, IObviableModelEntity
     {
         protected readonly PhoenixContext _phoenixContext;
+        protected readonly SchoolRepository _schoolRepository;
         protected readonly ILogger _logger;
 
         public Dictionary<int, SchoolUnique> SchoolUqsDict { get; }
         public Dictionary<int, CourseUnique> CourseUqsDict { get; }
-
+        
         protected List<int> PulledIds { get; set; }
         protected List<int> ObviatedIds { get; set; }
         protected bool Verbose { get; }
@@ -25,6 +26,7 @@ namespace Phoenix.Api.Ardea.Pullers
             PhoenixContext phoenixContext, ILogger logger, bool verbose = true)
         {
             this._phoenixContext = phoenixContext;
+            this._schoolRepository = new(phoenixContext);
             this._logger = logger;
 
             this.SchoolUqsDict = schoolUqsDict;
@@ -38,12 +40,12 @@ namespace Phoenix.Api.Ardea.Pullers
 
         protected WPPuller(Dictionary<int, SchoolUnique> schoolUqsDict,
             PhoenixContext phoenixContext, ILogger logger, bool verbose = true)
-        : this(schoolUqsDict, new(), phoenixContext, logger, verbose)
+            : this(schoolUqsDict, new(), phoenixContext, logger, verbose)
         {
         }
 
         protected WPPuller(PhoenixContext phoenixContext, ILogger logger, bool verbose = true)
-            : this(new(), phoenixContext, logger, verbose)
+            : this(new Dictionary<int, SchoolUnique>(), phoenixContext, logger, verbose)
         {
         }
 
