@@ -120,7 +120,7 @@ namespace Phoenix.Api.Ardea.Pullers
             }
 
             if (Verbose)
-                _logger.LogInformation("Obviating {ToObviateNum} {ObviableTypeName}s.",
+                _logger.LogInformation("Obviating {ToObviateNum} {ObviableTypeName}s...",
                     toObviate.Count, obviableTypeName.ToLower());
 
             var obviated = await repository.ObviateRangeAsync(toObviate);

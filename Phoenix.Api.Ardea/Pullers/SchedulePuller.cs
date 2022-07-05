@@ -1,6 +1,7 @@
 ﻿using Phoenix.DataHandle.DataEntry;
 using Phoenix.DataHandle.DataEntry.Models.Uniques;
 using Phoenix.DataHandle.Main.Models;
+using Phoenix.DataHandle.Main.Types;
 using Phoenix.DataHandle.Repositories;
 
 namespace Phoenix.Api.Ardea.Pullers
@@ -10,9 +11,12 @@ namespace Phoenix.Api.Ardea.Pullers
         private readonly ScheduleRepository _scheduleRepository;
         private readonly ClassroomRepository _classroomRepository;
         private readonly CourseRepository _courseRepository;
+        private readonly LectureRepository _lectureRepository;
 
         public List<int> PulledClassroomIds { get; set; } = new();
-        public List<int> ObviatedClassroomsIds { get; set; } = new();
+        public List<int> PulledLectureIds { get; set; } = new();
+        public List<int> ObviatedClassroomIds { get; set; } = new();
+        public List<int> ObviatedLectureIds { get; set; } = new();
 
         public override PostCategory PostCategory => PostCategory.Schedule;
 
@@ -27,9 +31,8 @@ namespace Phoenix.Api.Ardea.Pullers
             _scheduleRepository = new(phoenixContext);
             _classroomRepository = new(phoenixContext);
             _courseRepository = new(phoenixContext);
+            _lectureRepository = new(phoenixContext);
         }
-
-        // TODO: Create/Update Lectures with Schedule?
 
         public override async Task<List<int>> PullAsync()
         {
@@ -146,12 +149,19 @@ namespace Phoenix.Api.Ardea.Pullers
             else
                 _logger.LogInformation("No schedules to update.");
 
+            var pulledSchedules = created.Concat(updated);
+            foreach (var schedule in pulledSchedules)
+                PulledLectureIds.AddRange(await this.PutLecturesForScheduleAsync(schedule));
+
             _logger.LogInformation("Schedules & Classrooms synchronization finished.");
             _logger.LogInformation("-----------------------------------------------------------------");
 
-            PulledClassroomIds.AddRange(classroomsCreated.Concat(classroomsExisting).Select(c => c.Id).Distinct().ToList());
-            PulledIds.AddRange(created.Concat(updated).Select(s => s.Id).Distinct().ToList());
-            
+            PulledIds.AddRange(pulledSchedules.Select(s => s.Id).Distinct().ToList());
+            PulledClassroomIds.AddRange(classroomsCreated.Concat(classroomsExisting).Select(c => c.Id));
+
+            PulledClassroomIds = PulledClassroomIds.Distinct().ToList();
+            PulledLectureIds = PulledLectureIds.Distinct().ToList();
+
             return PulledIds;
         }
 
@@ -211,29 +221,155 @@ namespace Phoenix.Api.Ardea.Pullers
                 }
                 
                 if (Verbose)
-                    _logger.LogInformation("Obviating {ToObviateNum} classrooms.", classroomsToObviate.Count);
+                    _logger.LogInformation("Obviating {ToObviateNum} classrooms...", classroomsToObviate.Count);
 
                 var classroomsObviated = await _classroomRepository.ObviateRangeAsync(classroomsToObviate);
 
                 _logger.LogInformation("{ObviatedNum}/{ToObviateNum} classrooms obviated successfully.",
                     classroomsObviated.Count(), classroomsToObviate.Count);
 
-                ObviatedClassroomsIds.AddRange(classroomsObviated.Select(o => o.Id));
+                ObviatedClassroomIds.AddRange(classroomsObviated.Select(o => o.Id));
             }
 
             _logger.LogInformation("Classrooms obviation finished.");
             _logger.LogInformation("-----------------------------------------------------------------");
 
-            return ObviatedClassroomsIds;
+            return ObviatedClassroomIds;
         }
 
         public Task<List<int>> ObviateClassroomsAsync() =>
             ObviateClassroomsAsync(this.PulledClassroomIds);
 
+        private async Task<List<int>> PutLecturesForScheduleAsync(Schedule schedule)
+        {
+            if (schedule is null)
+                throw new ArgumentNullException(nameof(schedule));
+
+            var course = schedule.Course;
+            var school = course.School;
+            var offset = TimeZoneInfo.FindSystemTimeZoneById(school.SchoolSetting.TimeZone).BaseUtcOffset;
+
+            _logger.LogInformation("Generating lectures for course \"{CourseUq}\" on {Day} at {Time}...",
+                new CourseUnique(new(school.Code), course.Code), schedule.DayOfWeek,
+                schedule.StartTime.ToString("HH:mm"));
+
+            var days = Enumerable
+                .Range(0, 1 + course.LastDate.Date.Subtract(course.FirstDate.Date).Days)
+                .Select(i => course.FirstDate.Date.AddDays(i))
+                .Where(d => d.DayOfWeek == schedule.DayOfWeek);
+
+            var lecturesToCreate = new List<Lecture>(days.Count());
+            var lecturesToUpdate = new List<Lecture>(days.Count());
+            
+            foreach (var day in days)
+            {
+                var start = new DateTimeOffset(day.Add(schedule.StartTime.TimeOfDay), offset);
+                var end = new DateTimeOffset(day.Add(schedule.EndTime.TimeOfDay), offset);
+
+                var lecture = await _lectureRepository.FindUniqueAsync(course.Id, start);
+                
+                if (lecture is null)
+                {
+                    lecture = new()
+                    {
+                        CourseId = course.Id,
+                        ClassroomId = schedule.ClassroomId,
+                        ScheduleId = schedule.Id,
+                        StartDateTime = start,
+                        EndDateTime = end,
+                        Occasion = LectureOccasion.Scheduled
+                    };
+
+                    lecturesToCreate.Add(lecture);
+                }
+                else
+                {
+                    if (lecture.Occasion == LectureOccasion.Scheduled)
+                    {
+                        lecture.ClassroomId = schedule.ClassroomId;
+                        lecture.EndDateTime = end;
+
+                        lecturesToUpdate.Add(lecture);
+                    }
+                }
+            }
+
+            var lecturesCreated = new List<Lecture>();
+            if (lecturesToCreate.Any())
+            {
+                _logger.LogInformation("Creating {ToCreateNum} lectures...", lecturesToCreate.Count);
+                lecturesCreated = (await _lectureRepository.CreateRangeAsync(lecturesToCreate)).ToList();
+                _logger.LogInformation("{CreatedNum}/{ToCreateNum} lectures created successfully.",
+                    lecturesCreated.Count(), lecturesToCreate.Count);
+            }
+            else
+                _logger.LogInformation("No lectures to create.");
+
+            var lecturesUpdated = new List<Lecture>();
+            if (lecturesToUpdate.Any())
+            {
+                _logger.LogInformation("Updating {ToUpdateNum} lectures...", lecturesToUpdate.Count);
+                lecturesUpdated = (await _lectureRepository.UpdateRangeAsync(lecturesToUpdate)).ToList();
+                await _lectureRepository.RestoreRangeAsync(lecturesToUpdate);
+                _logger.LogInformation("{UpdatedNum}/{ToUpdateNum} lectures updated successfully.",
+                    lecturesUpdated.Count(), lecturesToUpdate.Count);
+            }
+            else
+                _logger.LogInformation("No lectures to update.");
+
+            return lecturesCreated.Concat(lecturesUpdated).Select(l => l.Id).Distinct().ToList();
+        }
+
+        public async Task<List<int>> ObviateLecturesAsync(List<int> lecturesToKeep)
+        {
+            _logger.LogInformation("-----------------------------------------------------------------");
+            _logger.LogInformation("Lectures obviation started.");
+
+            foreach (var schoolUqPair in SchoolUqsDict)
+            {
+                _logger.LogInformation("Obviating lectures for school \"{SchoolUq}\"...", schoolUqPair.Value);
+
+                var school = await _schoolRepository.FindPrimaryAsync(schoolUqPair.Key);
+
+                var lecturesToObviate = school!.Courses
+                    .SelectMany(c => c.Lectures)
+                    .Where(l => !lecturesToKeep.Contains(l.Id))
+                    .Where(l => l.Occasion == LectureOccasion.Scheduled)
+                    .ToList();
+
+                if (!lecturesToObviate.Any())
+                {
+                    if (Verbose)
+                        _logger.LogInformation("There is no lecture that needs to be obviated.");
+
+                    continue;
+                }
+
+                if (Verbose)
+                    _logger.LogInformation("Obviating {ToObviateNum} lectures...", lecturesToObviate.Count);
+
+                var lecturesObviated = await _lectureRepository.ObviateRangeAsync(lecturesToObviate);
+
+                _logger.LogInformation("{ObviatedNum}/{ToObviateNum} lectures obviated successfully.",
+                    lecturesObviated.Count(), lecturesToObviate.Count);
+
+                ObviatedLectureIds.AddRange(lecturesObviated.Select(o => o.Id));
+            }
+
+            _logger.LogInformation("Lectures obviation finished.");
+            _logger.LogInformation("-----------------------------------------------------------------");
+
+            return ObviatedClassroomIds;
+        }
+
+        public Task<List<int>> ObviateLecturesAsync() =>
+            ObviateLecturesAsync(this.PulledLectureIds);
+
         public override async Task PutAsync()
         {
             await base.PutAsync();
             await ObviateClassroomsAsync();
+            await ObviateLecturesAsync();
         }
     }
 }
