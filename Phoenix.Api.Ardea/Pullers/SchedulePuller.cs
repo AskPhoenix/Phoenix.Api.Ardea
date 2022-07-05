@@ -12,6 +12,7 @@ namespace Phoenix.Api.Ardea.Pullers
         private readonly CourseRepository _courseRepository;
 
         public List<int> PulledClassroomIds { get; set; } = new();
+        public List<int> ObviatedClassroomsIds { get; set; } = new();
 
         public override PostCategory PostCategory => PostCategory.Schedule;
 
@@ -156,8 +157,6 @@ namespace Phoenix.Api.Ardea.Pullers
 
         public override async Task<List<int>> ObviateAsync(List<int> toKeep)
         {
-            // TODO: Obviate Classrooms if they aren't assigned to any schedules
-
             _logger.LogInformation("-----------------------------------------------------------------");
             _logger.LogInformation("Schedules obviation started.");
 
@@ -186,6 +185,55 @@ namespace Phoenix.Api.Ardea.Pullers
             _logger.LogInformation("-----------------------------------------------------------------");
 
             return ObviatedIds;
+        }
+
+        public async Task<List<int>> ObviateClassroomsAsync(List<int> classroomsToKeep)
+        {
+            _logger.LogInformation("-----------------------------------------------------------------");
+            _logger.LogInformation("Classrooms obviation started.");
+
+            foreach (var schoolUqPair in SchoolUqsDict)
+            {
+                _logger.LogInformation("Obviating classrooms for school \"{SchoolUq}\"...", schoolUqPair.Value);
+
+                var school = await _schoolRepository.FindPrimaryAsync(schoolUqPair.Key);
+                
+                var classroomsToObviate = school!.Classrooms
+                    .Where(c => !classroomsToKeep.Contains(c.Id))
+                    .ToList();
+
+                if (!classroomsToObviate.Any())
+                {
+                    if (Verbose)
+                        _logger.LogInformation("There is no classroom that needs to be obviated.");
+
+                    continue;
+                }
+                
+                if (Verbose)
+                    _logger.LogInformation("Obviating {ToObviateNum} classrooms.", classroomsToObviate.Count);
+
+                var classroomsObviated = await _classroomRepository.ObviateRangeAsync(classroomsToObviate);
+
+                _logger.LogInformation("{ObviatedNum}/{ToObviateNum} classrooms obviated successfully.",
+                    classroomsObviated.Count(), classroomsToObviate.Count);
+
+                ObviatedClassroomsIds.AddRange(classroomsObviated.Select(o => o.Id));
+            }
+
+            _logger.LogInformation("Classrooms obviation finished.");
+            _logger.LogInformation("-----------------------------------------------------------------");
+
+            return ObviatedClassroomsIds;
+        }
+
+        public Task<List<int>> ObviateClassroomsAsync() =>
+            ObviateClassroomsAsync(this.PulledClassroomIds);
+
+        public override async Task PutAsync()
+        {
+            await base.PutAsync();
+            await ObviateClassroomsAsync();
         }
     }
 }
