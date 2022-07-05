@@ -65,7 +65,7 @@ namespace Phoenix.Api.Ardea.Pullers
 
                             await this.PutUserToRoleAsync(appParent, parentAcf.Role);
                             await this.PutUserToSchoolAsync(parent, school!);
-                            await this.PutUserToCoursesAsync(parent, parentAcf, school!);
+                            // Parents shall not enroll to any courses.
 
                             PulledIds.Add(appParent.Id);
 

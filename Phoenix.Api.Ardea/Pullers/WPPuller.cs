@@ -74,6 +74,7 @@ namespace Phoenix.Api.Ardea.Pullers
             _ = await ObviateAsync();
         }
 
+        // TODO: Make sure that search returns all the requested posts
         protected async Task<IEnumerable<Post>> GetPostsForSchoolAsync(SchoolUnique schoolUq)
         {
             return (await WPClientWrapper
