@@ -246,10 +246,11 @@ namespace Phoenix.Api.Ardea.Controllers
             return Ok();
         }
 
+        // Hide
         [HttpPut("all")]
         [SwaggerOperation(Summary = "Synchronize all data for all schools.")]
         [SwaggerResponse(StatusCodes.Status200OK, MSG200)]
-        public async Task<IActionResult> PutAllAsync()
+        private async Task<IActionResult> PutAllAsync()
         {
             return await this.PutAllAsync(specificSchoolUq: null);
         }
