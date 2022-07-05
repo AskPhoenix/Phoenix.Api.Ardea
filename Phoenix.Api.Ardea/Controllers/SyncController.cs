@@ -10,7 +10,7 @@ using Swashbuckle.AspNetCore.Annotations;
 namespace Phoenix.Api.Ardea.Controllers
 {
     [ApiController]
-    [Route("[controller]")]
+    [Route("api/[controller]")]
     public class SyncController : ControllerBase
     {
         private readonly ILogger<SyncController> _logger;
