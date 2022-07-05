@@ -16,8 +16,12 @@ namespace Phoenix.Api.Ardea.Pullers
 
         public override PostCategory PostCategory => PostCategory.Schedule;
 
-        public SchedulePuller(Dictionary<int, SchoolUnique> schoolUqsDict, Dictionary<int, CourseUnique> courseUqsDict, 
-            PhoenixContext phoenixContext, ILogger logger, bool verbose = true) 
+        public SchedulePuller(
+            Dictionary<int, SchoolUnique> schoolUqsDict,
+            Dictionary<int, CourseUnique> courseUqsDict, 
+            PhoenixContext phoenixContext,
+            ILogger logger,
+            bool verbose = true) 
             : base(schoolUqsDict, courseUqsDict, phoenixContext, logger, verbose)
         {
             _scheduleRepository = new(phoenixContext);

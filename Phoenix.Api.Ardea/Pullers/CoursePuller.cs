@@ -14,8 +14,11 @@ namespace Phoenix.Api.Ardea.Pullers
 
         public override PostCategory PostCategory => PostCategory.Course;
 
-        public CoursePuller(Dictionary<int, SchoolUnique> schoolUqsDict,
-            PhoenixContext phoenixContext, ILogger logger, bool verbose = true)
+        public CoursePuller(
+            Dictionary<int, SchoolUnique> schoolUqsDict,
+            PhoenixContext phoenixContext,
+            ILogger logger,
+            bool verbose = true)
             : base(schoolUqsDict, phoenixContext, logger, verbose)
         {
             _courseRepository = new(phoenixContext);

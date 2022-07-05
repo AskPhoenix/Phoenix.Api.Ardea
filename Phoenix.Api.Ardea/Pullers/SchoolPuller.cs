@@ -13,8 +13,11 @@ namespace Phoenix.Api.Ardea.Pullers
 
         public override PostCategory PostCategory => PostCategory.SchoolInformation;
 
-        public SchoolPuller(SchoolUnique? specificSchoolUq,
-            PhoenixContext phoenixContext, ILogger logger, bool verbose = true)
+        public SchoolPuller(
+            SchoolUnique? specificSchoolUq,
+            PhoenixContext phoenixContext,
+            ILogger logger,
+            bool verbose = true)
             : base(phoenixContext, logger, verbose)
         {
             this.SpecificSchoolUq = specificSchoolUq;

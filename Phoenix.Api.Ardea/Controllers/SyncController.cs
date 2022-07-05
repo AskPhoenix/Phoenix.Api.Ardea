@@ -10,7 +10,7 @@ using Swashbuckle.AspNetCore.Annotations;
 namespace Phoenix.Api.Ardea.Controllers
 {
     [ApiController]
-    [Route("sync")]
+    [Route("[controller]")]
     public class SyncController : ControllerBase
     {
         private readonly ILogger<SyncController> _logger;
@@ -95,7 +95,7 @@ namespace Phoenix.Api.Ardea.Controllers
             return new(schoolUqsDict, courseUqsDict);
         }
 
-        [HttpPut("/specific/{code}")]
+        [HttpPut("specific/{code}")]
         [SwaggerOperation(Summary = "Synchronize all data for a specific school by its code.")]
         [SwaggerResponse(StatusCodes.Status200OK, MSG200)]
         [SwaggerResponse(StatusCodes.Status400BadRequest, MSG400)]
@@ -110,7 +110,7 @@ namespace Phoenix.Api.Ardea.Controllers
             return await this.PutAllAsync(specificSchoolUq);
         }
 
-        [HttpPut("/specific/{code}/school_info")]
+        [HttpPut("specific/{code}/school_info")]
         [SwaggerOperation(Summary = "Synchronize school info for a specific school by its code.")]
         [SwaggerResponse(StatusCodes.Status200OK, MSG200)]
         [SwaggerResponse(StatusCodes.Status400BadRequest, MSG400)]
@@ -128,7 +128,7 @@ namespace Phoenix.Api.Ardea.Controllers
             return Ok();
         }
 
-        [HttpPut("/specific/{code}/courses")]
+        [HttpPut("specific/{code}/courses")]
         [SwaggerOperation(Summary = "Synchronize courses for a specific school by its code.")]
         [SwaggerResponse(StatusCodes.Status200OK, MSG200)]
         [SwaggerResponse(StatusCodes.Status400BadRequest, MSG400)]
@@ -157,7 +157,7 @@ namespace Phoenix.Api.Ardea.Controllers
             return Ok();
         }
 
-        [HttpPut("/specific/{code}/schedules")]
+        [HttpPut("specific/{code}/schedules")]
         [SwaggerOperation(Summary = "Synchronize schedules for a specific school by its code.")]
         [SwaggerResponse(StatusCodes.Status200OK, MSG200)]
         [SwaggerResponse(StatusCodes.Status400BadRequest, MSG400)]
@@ -186,7 +186,7 @@ namespace Phoenix.Api.Ardea.Controllers
             return Ok();
         }
 
-        [HttpPut("/specific/{code}/personnel")]
+        [HttpPut("specific/{code}/personnel")]
         [SwaggerOperation(Summary = "Synchronize personnel for a specific school by its code.")]
         [SwaggerResponse(StatusCodes.Status200OK, MSG200)]
         [SwaggerResponse(StatusCodes.Status400BadRequest, MSG400)]
@@ -216,7 +216,37 @@ namespace Phoenix.Api.Ardea.Controllers
             return Ok();
         }
 
-        [HttpPut("/all")]
+        [HttpPut("specific/{code}/clients")]
+        [SwaggerOperation(Summary = "Synchronize clients for a specific school by its code.")]
+        [SwaggerResponse(StatusCodes.Status200OK, MSG200)]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, MSG400)]
+        public async Task<IActionResult> PutClientsForSchoolAsync(
+            [SwaggerParameter(Description = DES_P1, Required = true)]
+            int code)
+        {
+            try
+            {
+                var dict = await this.PutInitAsync(code);
+
+                ClientPuller clientPuller = new(dict.Item1, dict.Item2,
+                    _appUserManager, _phoenixContext, _logger, _verbose);
+                await clientPuller.PutAsync();
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogCritical("{ExceptionMsg}", ex.Message);
+                return BadRequest(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogCritical("{ExceptionMsg}", ex.Message);
+                return StatusCode(StatusCodes.Status500InternalServerError);
+            }
+
+            return Ok();
+        }
+
+        [HttpPut("all")]
         [SwaggerOperation(Summary = "Synchronize all data for all schools.")]
         [SwaggerResponse(StatusCodes.Status200OK, MSG200)]
         public async Task<IActionResult> PutAllAsync()
@@ -246,10 +276,11 @@ namespace Phoenix.Api.Ardea.Controllers
                     _appUserManager, _configuration["BackendDefPass"], _phoenixContext, _logger, _verbose);
                 await personnelPuller.PutAsync();
 
-                return Ok();
+                ClientPuller clientPuller = new(schoolUqsDict, courseUqsDict,
+                    _appUserManager, _phoenixContext, _logger, _verbose);
+                await clientPuller.PutAsync();
 
-                //ClientPuller clientPuller = new(schoolUqsDict, courseUqsDict, _phoenixContext, _appStore, _logger, _verbose);
-                //await clientPuller.PutAsync();
+                return Ok();
             }
             catch (Exception ex)
             {

@@ -13,15 +13,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="Pullers\ClientPuller.cs" />
-  </ItemGroup>
-
-  <ItemGroup>
     <_WebToolingArtifacts Remove="Properties\PublishProfiles\Ardea.Staging.pubxml" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Phoenix.DataHandle" Version="3.0.0-beta1.35" />
+    <PackageReference Include="Phoenix.DataHandle" Version="3.0.0-beta1.41" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.3.1" />
     <PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="6.3.1" />
   </ItemGroup>

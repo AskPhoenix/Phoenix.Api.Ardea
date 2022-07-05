@@ -1,176 +1,159 @@
-﻿using Phoenix.DataHandle.Main;
+﻿using Phoenix.DataHandle.DataEntry;
+using Phoenix.DataHandle.DataEntry.Models;
+using Phoenix.DataHandle.DataEntry.Models.Uniques;
+using Phoenix.DataHandle.Identity;
 using Phoenix.DataHandle.Main.Models;
+using Phoenix.DataHandle.Main.Types;
 using Phoenix.DataHandle.Repositories;
-using Phoenix.DataHandle.WordPress;
-using Phoenix.DataHandle.WordPress.Models;
-using Phoenix.DataHandle.WordPress.Models.Uniques;
-using Phoenix.DataHandle.WordPress.Utilities;
-using Phoenix.DataHandle.WordPress.Wrappers;
-using WordPressPCL.Models;
+using User = Phoenix.DataHandle.Main.Models.User;
 
 namespace Phoenix.Api.Ardea.Pullers
 {
-    public class ClientPuller : WPPuller<AspNetUsers>
+    public class ClientPuller : UserPuller
     {
-        protected readonly AspNetUserRepository aspNetUserRepository;
-        protected readonly SchoolRepository schoolRepository;
+        public override PostCategory PostCategory => PostCategory.Client;
 
-        public ClientPuller(Dictionary<int, SchoolUnique> schoolUqsDict, Dictionary<int, CourseUnique> courseUqsDict,
-            PhoenixContext phoenixContext, ILogger logger, bool verbose = true)
-            : base(schoolUqsDict, courseUqsDict, logger, verbose)
+        public ClientPuller(
+            Dictionary<int, SchoolUnique> schoolUqsDict,
+            Dictionary<int, CourseUnique> courseUqsDict,
+            ApplicationUserManager appUserManager,
+            PhoenixContext phoenixContext,
+            ILogger logger,
+            bool verbose = true)
+            : base(schoolUqsDict, courseUqsDict, appUserManager, phoenixContext, logger, verbose)
         {
-            this.aspNetUserRepository = new(phoenixContext);
-            this.aspNetUserRepository.Include(u => u.User);
-            this.aspNetUserRepository.Include(u => u.ParenthoodChild);
-            this.aspNetUserRepository.Include(u => u.ParenthoodParent);
-            this.schoolRepository = new(phoenixContext);
         }
-
-        public override int CategoryId => PostCategoryWrapper.GetCategoryId(PostCategory.Client);
 
         public override async Task<List<int>> PullAsync()
         {
-            Logger.LogInformation("-----------------------------------------------------------------");
-            Logger.LogInformation("Students & Parents synchronization started");
-
-            IEnumerable<Post> clientPosts = await WordPressClientWrapper.GetPostsAsync(CategoryId);
-            IEnumerable<Post> filteredPosts;
+            _logger.LogInformation("-----------------------------------------------------------------");
+            _logger.LogInformation("Clients synchronization started.");
 
             foreach (var schoolUqPair in SchoolUqsDict)
             {
-                filteredPosts = clientPosts.FilterPostsForSchool(schoolUqPair.Value);
+                var schoolClientPosts = (await WPClientWrapper
+                    .GetPostsAsync(this.PostCategory, schoolUqPair.Value.ToString()))
+                    .FilterPostsForSchool(schoolUqPair.Value);
 
-                Logger.LogInformation("{ClientsNumber} Clients found for School \"{SchoolUq}\"",
-                    filteredPosts.Count(), schoolUqPair.Value.ToString());
+                _logger.LogInformation("{ClientsNumber} Clients found for School \"{SchoolUq}\".",
+                    schoolClientPosts.Count(), schoolUqPair.Value);
 
-                foreach (var clientPost in filteredPosts)
+                var school = await _schoolRepository.FindUniqueAsync(schoolUqPair.Value);
+
+                foreach (var clientPost in schoolClientPosts)
                 {
-                    var clientAcf = (ClientACF)(await WordPressClientWrapper.GetAcfAsync<ClientACF>(clientPost.Id)).WithTitleCase();
-                    clientAcf.SchoolUnique = schoolUqPair.Value;
-
-                    var parents = clientAcf.ExtractParents();
-                    var parentUsers = clientAcf.ExtractParentUsers();
-
-                    var parentIds = new List<int>(parents.Count);
-                    for (int i = 0; i < parents.Count; i++)
+                    try
                     {
-                        parents[i].UserName = ClientACF.GetUserName(parentUsers[i], schoolUqPair.Key, parents[i].PhoneNumber);
-                        parents[i].NormalizedUserName = parents[i].UserName.ToUpperInvariant();
+                        var studentAcf = await WPClientWrapper.GetClientAcfAsync(clientPost);
+                        var parentsAcf = new ClientAcf?[2] { studentAcf.Parent1, studentAcf.Parent2 };
 
-                        string parentPhoneString = i == 0 ? clientAcf.Parent1PhoneString : clientAcf.Parent2PhoneString;
-                        AspNetUsers? parent = aspNetUserRepository.Find().
-                                SingleOrDefault(u => u.User.IsSelfDetermined && u.PhoneNumber == parentPhoneString);
+                        var appParents = new ApplicationUser?[2];
+                        var parents = new User?[2];
 
-                        if (parent is null)
+                        // Parents
+                        for (int i = 0; i < 2; i++)
                         {
-                            if (Verbose)
-                                Logger.LogInformation("Adding Parent {ParentNumber} with phone number {ParentPhone}.",
-                                    i+1, parentPhoneString);
+                            var parentAcf = parentsAcf[i];
+                            if (parentAcf is null)
+                                continue;
 
-                            parent = parents[i];
-                            parent.User = parentUsers[i];
+                            var appParent = await _appUserManager.FindByPhoneNumberAsync(parentAcf.PhoneString);
+                            appParent = await this.PutAppUserAsync(appParent, parentAcf, schoolUqPair.Value);
+                            if (appParent is null)
+                                continue;
 
-                            aspNetUserRepository.Create(parent);
-                            aspNetUserRepository.LinkRole(parent, Role.Parent);
+                            var parent = await _userRepository.FindPrimaryAsync(appParent.Id);
+                            parent = await this.PutUserAsync(parent, parentAcf, appParent.Id);
 
-                            if (Verbose)
-                                Logger.LogInformation("Linking Parent {ParentNumber} with phone number {ParentPhone}" +
-                                    " with school \"{SchoolUq}\"", i+1, parentPhoneString, schoolUqPair.Value);
-                            
-                            aspNetUserRepository.LinkSchool(parent, schoolUqPair.Key);
+                            await this.PutUserToRoleAsync(appParent, parentAcf.Role);
+                            await this.PutUserToSchoolAsync(parent, school!);
+                            await this.PutUserToCoursesAsync(parent, parentAcf, school!);
+
+                            PulledIds.Add(appParent.Id);
+
+                            appParents[i] = appParent;
+                            parents[i] = parent;
+                        }
+
+                        // Student
+                        ApplicationUser? appStudent = null;
+                        User? student = null;
+
+                        if (studentAcf.IsSelfDetermined)
+                        {
+                            appStudent = await _appUserManager.FindByPhoneNumberAsync(studentAcf.PhoneString);
+                            appStudent = await this.PutAppUserAsync(appStudent, studentAcf, schoolUqPair.Value);
+                            if (appStudent is null)
+                                continue;
+
+                            student = (await _userRepository.FindPrimaryAsync(appStudent.Id))!;
                         }
                         else
                         {
-                            if (Verbose)
-                                Logger.LogInformation("Updating Parent {ParentNumber} with phone number {ParentPhone}.",
-                                    i+1, parentPhoneString);
+                            for (int i = 0; i < 2; i++)
+                            {
+                                student = parents[i]?.Children
+                                    .SingleOrDefault(c => string.Equals(c.FullName, studentAcf.FullName, StringComparison.OrdinalIgnoreCase));
 
-                            aspNetUserRepository.Update(parent, parents[i], parentUsers[i]);
-                            aspNetUserRepository.Restore(parent);
+                                if (student is not null)
+                                    break;
+                            }
 
-                            if (!aspNetUserRepository.HasRole(parent, Role.Parent))
-                                aspNetUserRepository.LinkRole(parent, Role.Parent);
+                            if (student is null || student.DependenceOrder == 0)
+                            {
+                                int p = parents[0] is null ? 1 : 0;
+                                studentAcf.DependenceOrder = parents[p]!.Children
+                                    .Select(c => c.DependenceOrder)
+                                    .Max() + 1;
+                            }
+                            else
+                            {
+                                studentAcf.DependenceOrder = student.DependenceOrder;
+                            }
+
+                            if (student is not null)
+                                appStudent = await _appUserManager.FindByIdAsync(student.AspNetUserId.ToString());
+
+                            appStudent = await this.PutAppUserAsync(appStudent, studentAcf, schoolUqPair.Value);
+                            if (appStudent is null)
+                                continue;
                         }
 
-                        parentIds.Add(parent.Id);
-                    }
+                        student = await this.PutUserAsync(student, studentAcf, appStudent.Id);
 
-                    PulledIds.AddRange(parentIds);
+                        await this.PutUserToRoleAsync(appStudent, studentAcf.Role);
+                        await this.PutUserToSchoolAsync(student, school!);
+                        await this.PutUserToCoursesAsync(student, studentAcf, school!);
 
-                    AspNetUsers student = null!;
-                    if (clientAcf.IsSelfDetermined)
-                        student = await aspNetUserRepository.Find(checkUnique: clientAcf.MatchesUnique);
-                    else
-                    {
-                        if (!clientAcf.HasParent1 && !clientAcf.HasParent2)
-                            Logger.LogError("Non self determined users must have at least one parent. " +
-                                "WordPress Post {PostTitle} was skipped.", clientPost.GetTitle());
+                        PulledIds.Add(appStudent.Id);
 
-                        student = aspNetUserRepository.FindChild(parentIds.First(), 
-                            clientAcf.StudentFirstName, clientAcf.StudentLastName);
-                    }
-
-                    if (student is null)
-                    {
-                        if (Verbose)
-                            Logger.LogInformation("Adding Student with {ParentStr}phone number: {PhoneNumber}",
-                                (clientAcf.IsSelfDetermined) ? "" : "parent ", clientAcf.TopPhoneNumber);
-
-                        student = clientAcf.ToContext();
-                        student.User = clientAcf.ExtractUser();
-                        student.UserName = ClientACF.GetUserName(student.User, schoolUqPair.Key, clientAcf.TopPhoneNumber);
-                        student.NormalizedUserName = student.UserName.ToUpperInvariant();
-
-                        aspNetUserRepository.Create(student);
-                        
-                        aspNetUserRepository.LinkSchool(student, schoolUqPair.Key);
-                        aspNetUserRepository.LinkRole(student, Role.Student);
-                    }
-                    else
-                    {
-                        if (Verbose)
-                            Logger.LogInformation("Updating Student with {ParentStr}phone number: {PhoneNumber}",
-                                (clientAcf.IsSelfDetermined) ? "" : "parent ", clientAcf.TopPhoneNumber);
-
-                        var updatedUser = clientAcf.ExtractUser();
-                        var aspNetUserFrom = clientAcf.ToContext();
-                        aspNetUserFrom.UserName = ClientACF.GetUserName(updatedUser, schoolUqPair.Key, clientAcf.TopPhoneNumber);
-                        aspNetUserFrom.NormalizedUserName = aspNetUserFrom.UserName.ToUpperInvariant();
-
-                        aspNetUserRepository.Update(student, aspNetUserFrom, updatedUser);
-                        aspNetUserRepository.Restore(student);
-                        
-                        if (!aspNetUserRepository.HasRole(student, Role.Student))
-                            this.aspNetUserRepository.LinkRole(student, Role.Student);
-                    }
-
-                    PulledIds.Add(student.Id);
-
-                    foreach (int parId in parentIds)
-                    {
-                        if (aspNetUserRepository.FindChild(parId, clientAcf.StudentFirstName, clientAcf.StudentLastName) is null)
+                        // Link Parents with the student
+                        for (int i = 0; i < 2; i++)
                         {
-                            if (Verbose)
-                                Logger.LogInformation("Linking student with parent phone number {PhoneNumber}" +
-                                    " with their parents", clientAcf.TopPhoneNumber);
+                            if (parents[i] is null)
+                                continue;
 
-                            this.aspNetUserRepository.LinkParenthood(parId, student.Id);
+                            if (Verbose)
+                                _logger.LogInformation("Linking student with their parent {i}...", i);
+
+                            var children = parents[i]!.Children;
+
+                            if (!children.Contains(student))
+                                children.Add(student);
+
+                            await _userRepository.UpdateAsync(parents[i]!);
                         }
                     }
-
-                    if (Verbose)
-                        Logger.LogInformation("Linking Student with {ParentStr}phone number {PhoneNumber} with their courses",
-                                (clientAcf.IsSelfDetermined) ? "" : "parent ", clientAcf.TopPhoneNumber);
-
-                    var userCourseCodes = clientAcf.ExtractCourseCodes();
-                    var userCourseUqs = userCourseCodes.Select(c => new CourseUnique(schoolUqPair.Value, c));
-                    var userCourseIds = CourseUqsDict.Where(kv => userCourseUqs.Contains(kv.Value)).Select(kv => kv.Key);
-
-                    aspNetUserRepository.LinkCourses(student, userCourseIds.ToList(), deleteAdditionalLinks: true);
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex.Message);
+                        _logger.LogInformation("Skipping post...");
+                        continue;
+                    }
                 }
 
-                Logger.LogInformation("Students & Parents synchronization finished");
-                Logger.LogInformation("-----------------------------------------------------------------");
+                _logger.LogInformation("Students & Parents synchronization finished.");
+                _logger.LogInformation("-----------------------------------------------------------------");
             }
 
             return PulledIds = PulledIds.Distinct().ToList();
@@ -178,33 +161,37 @@ namespace Phoenix.Api.Ardea.Pullers
 
         public override async Task<List<int>> ObviateAsync(List<int> toKeep)
         {
-            return ObviatedIds = await ObviateAllPerSchoolAsync(schoolRepository.FindClients, aspNetUserRepository, toKeep);
-        }
-
-        protected override int? ObviateUnit(AspNetUsers user, ObviableRepository<AspNetUsers> repository)
-        {
-            var roles = aspNetUserRepository.FindRoles(user).Select(r => r.Type);
-
-            if (roles.All(r => r.IsClient()))
+            IEnumerable<User> findClientsForSchool(int schoolId)
             {
-                if (Verbose)
-                    Logger.LogInformation("Deleting all roles from client user with id {UserId}", user.Id);
-                aspNetUserRepository.DeleteRoles(user);
+                var school = Task.Run(() => _schoolRepository.FindPrimaryAsync(schoolId)).Result;
+                if (school is null)
+                    return Enumerable.Empty<User>();
 
-                if (Verbose)
-                    Logger.LogInformation("Assigning \"None\" role to client user with id {UserId}", user.Id);
-                aspNetUserRepository.LinkRole(user, Role.None);
+                var users = school.Users.ToList();
+                var clients = new List<User>();
 
-                return base.ObviateUnit(user, repository);
+                foreach (var user in users)
+                {
+                    var appUser = _appUserManager.FindByIdAsync(user.AspNetUserId.ToString()).Result;
+                    var roles = _appUserManager.GetRoleRanksAsync(appUser).Result;
+
+                    if (roles.Any(r => r.IsClient()))
+                        clients.Add(user);
+                }
+
+                return clients;
             }
 
-            Logger.LogWarning("Client user with id {UserId} obviation is skipped because they have non-client roles too", user.Id);
+            return ObviatedIds = await ObviateAllPerSchoolAsync(findClientsForSchool, _userRepository, toKeep);
+        }
 
-            if (Verbose)
-                Logger.LogInformation("Deleting client roles from client user with id {UserId}", user.Id);
-            aspNetUserRepository.DeleteRoles(user, roles.Where(r => !r.IsClient()).ToList());
+        protected override async Task<List<int>> ObviateGroupAsync(IList<User> toObviate, ObviableRepository<User> userRepository)
+        {
+            var obviatedIds = await base.ObviateGroupAsync(toObviate, userRepository);
+            if (obviatedIds.Any())
+                await this.DeassignRolesFromObviatedAsync(toObviate, RoleHierarchy.ClientRolesBase);
 
-            return null;
+            return obviatedIds;
         }
     }
 }

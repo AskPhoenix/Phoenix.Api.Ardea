@@ -22,8 +22,12 @@ namespace Phoenix.Api.Ardea.Pullers
 
         private readonly string obviableTypeName = typeof(TObviable).Name;
 
-        protected WPPuller(Dictionary<int, SchoolUnique> schoolUqsDict, Dictionary<int, CourseUnique> courseUqsDict,
-            PhoenixContext phoenixContext, ILogger logger, bool verbose = true)
+        protected WPPuller(
+            Dictionary<int, SchoolUnique> schoolUqsDict,
+            Dictionary<int, CourseUnique> courseUqsDict,
+            PhoenixContext phoenixContext,
+            ILogger logger,
+            bool verbose = true)
         {
             this._phoenixContext = phoenixContext;
             this._schoolRepository = new(phoenixContext);
@@ -38,13 +42,19 @@ namespace Phoenix.Api.Ardea.Pullers
             this.Verbose = verbose;
         }
 
-        protected WPPuller(Dictionary<int, SchoolUnique> schoolUqsDict,
-            PhoenixContext phoenixContext, ILogger logger, bool verbose = true)
+        protected WPPuller(
+            Dictionary<int, SchoolUnique> schoolUqsDict,
+            PhoenixContext phoenixContext,
+            ILogger logger,
+            bool verbose = true)
             : this(schoolUqsDict, new(), phoenixContext, logger, verbose)
         {
         }
 
-        protected WPPuller(PhoenixContext phoenixContext, ILogger logger, bool verbose = true)
+        protected WPPuller(
+            PhoenixContext phoenixContext,
+            ILogger logger,
+            bool verbose = true)
             : this(new Dictionary<int, SchoolUnique>(), phoenixContext, logger, verbose)
         {
         }
