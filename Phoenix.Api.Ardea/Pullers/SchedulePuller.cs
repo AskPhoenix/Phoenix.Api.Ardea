@@ -94,6 +94,7 @@ namespace Phoenix.Api.Ardea.Pullers
                                     _logger.LogInformation("Classroom \"{ClassroomName}\" already exists.", classroom.Name);
 
                                 classroomsExisting.Add(classroom);
+                                await _classroomRepository.RestoreAsync(classroom);
                             }
                         }
 
