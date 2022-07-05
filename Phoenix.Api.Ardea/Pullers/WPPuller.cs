@@ -3,6 +3,7 @@ using Phoenix.DataHandle.DataEntry.Models.Uniques;
 using Phoenix.DataHandle.Main.Models;
 using Phoenix.DataHandle.Main.Models.Extensions;
 using Phoenix.DataHandle.Repositories;
+using WordPressPCL.Models;
 
 namespace Phoenix.Api.Ardea.Pullers
 {
@@ -71,6 +72,13 @@ namespace Phoenix.Api.Ardea.Pullers
         {
             _ = await PullAsync();
             _ = await ObviateAsync();
+        }
+
+        protected async Task<IEnumerable<Post>> GetPostsForSchoolAsync(SchoolUnique schoolUq)
+        {
+            return (await WPClientWrapper
+                    .GetPostsAsync(this.PostCategory, schoolUq.ToString()))
+                    .FilterPostsForSchool(schoolUq);
         }
 
         protected async Task<List<int>> ObviateAllPerSchoolAsync(Func<int, IEnumerable<TObviable>> findObviables,

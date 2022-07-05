@@ -28,11 +28,14 @@ namespace Phoenix.Api.Ardea.Pullers
             _logger.LogInformation("-----------------------------------------------------------------");
             _logger.LogInformation("Schools synchronization started.");
 
-            IEnumerable<Post> schoolPosts = await WPClientWrapper.GetPostsAsync(this.PostCategory);
+            IEnumerable<Post> schoolPosts;
             if (SpecificSchoolOnly)
-                schoolPosts = schoolPosts.FilterPostsForSchool(SpecificSchoolUq!);
+                schoolPosts = await this.GetPostsForSchoolAsync(SpecificSchoolUq!);
             else
+            {
+                schoolPosts = await WPClientWrapper.GetPostsAsync(this.PostCategory);
                 _logger.LogInformation("{SchoolsNumber} Schools found.", schoolPosts.Count());
+            }
 
             var toCreate = new List<School>();
             var toUpdate = new List<School>();

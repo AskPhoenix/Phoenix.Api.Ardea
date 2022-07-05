@@ -183,10 +183,6 @@ namespace Phoenix.Api.Ardea.Pullers
 
             if (!userAcf.CourseCodes.Any())
             {
-                //coursesFinal = _courseRepository.Find()
-                //    .Where(c => c.SchoolId == school.Id)
-                //    .ToList();
-
                 coursesFinal = school.Courses.ToList();
             }
             else

@@ -4,7 +4,6 @@ using Phoenix.DataHandle.Identity;
 using Phoenix.DataHandle.Main.Models;
 using Phoenix.DataHandle.Main.Types;
 using Phoenix.DataHandle.Repositories;
-using WordPressPCL.Models;
 using User = Phoenix.DataHandle.Main.Models.User;
 
 namespace Phoenix.Api.Ardea.Pullers
@@ -30,19 +29,16 @@ namespace Phoenix.Api.Ardea.Pullers
             _logger.LogInformation("-----------------------------------------------------------------");
             _logger.LogInformation("Personnel synchronization started.");
 
-            IEnumerable<Post> personnelPosts = await WPClientWrapper.GetPostsAsync(this.PostCategory);
-            IEnumerable<Post> filteredPosts;
-
             foreach (var schoolUqPair in SchoolUqsDict)
             {
-                filteredPosts = personnelPosts.FilterPostsForSchool(schoolUqPair.Value);
+                var posts = await this.GetPostsForSchoolAsync(schoolUqPair.Value);
 
                 _logger.LogInformation("{PersonnelNumber} Staff members found for School \"{SchoolUq}\".",
-                    filteredPosts.Count(), schoolUqPair.Value);
+                    posts.Count(), schoolUqPair.Value);
 
                 var school = await _schoolRepository.FindUniqueAsync(schoolUqPair.Value);
 
-                foreach (var personnelPost in filteredPosts)
+                foreach (var personnelPost in posts)
                 {
                     var personnelAcf = await WPClientWrapper.GetPersonnelAcfAsync(personnelPost);
 

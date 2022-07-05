@@ -31,16 +31,14 @@ namespace Phoenix.Api.Ardea.Pullers
 
             foreach (var schoolUqPair in SchoolUqsDict)
             {
-                var schoolClientPosts = (await WPClientWrapper
-                    .GetPostsAsync(this.PostCategory, schoolUqPair.Value.ToString()))
-                    .FilterPostsForSchool(schoolUqPair.Value);
+                var posts = await this.GetPostsForSchoolAsync(schoolUqPair.Value);
 
                 _logger.LogInformation("{ClientsNumber} Clients found for School \"{SchoolUq}\".",
-                    schoolClientPosts.Count(), schoolUqPair.Value);
+                    posts.Count(), schoolUqPair.Value);
 
                 var school = await _schoolRepository.FindUniqueAsync(schoolUqPair.Value);
 
-                foreach (var clientPost in schoolClientPosts)
+                foreach (var clientPost in posts)
                 {
                     try
                     {

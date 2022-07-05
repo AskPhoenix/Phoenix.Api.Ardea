@@ -2,7 +2,6 @@
 using Phoenix.DataHandle.DataEntry.Models.Uniques;
 using Phoenix.DataHandle.Main.Models;
 using Phoenix.DataHandle.Repositories;
-using WordPressPCL.Models;
 
 namespace Phoenix.Api.Ardea.Pullers
 {
@@ -36,9 +35,6 @@ namespace Phoenix.Api.Ardea.Pullers
             _logger.LogInformation("-----------------------------------------------------------------");
             _logger.LogInformation("Schedules & Classrooms synchronization started.");
 
-            IEnumerable<Post> schedulePosts = await WPClientWrapper.GetPostsAsync(this.PostCategory);
-            IEnumerable<Post> filteredPosts;
-
             var toCreate = new List<Schedule>();
             var toUpdate = new List<Schedule>();
 
@@ -47,12 +43,12 @@ namespace Phoenix.Api.Ardea.Pullers
 
             foreach (var schoolUqPair in SchoolUqsDict)
             {
-                filteredPosts = schedulePosts.FilterPostsForSchool(schoolUqPair.Value);
+                var posts = await this.GetPostsForSchoolAsync(schoolUqPair.Value);
 
                 _logger.LogInformation("{SchedulesNumber} Schedules found for School \"{SchoolUq}\".",
-                    filteredPosts.Count(), schoolUqPair.Value);
+                    posts.Count(), schoolUqPair.Value);
 
-                foreach (var schedulePost in filteredPosts)
+                foreach (var schedulePost in posts)
                 {
                     var scheduleAcf = await WPClientWrapper.GetScheduleAcfAsync(schedulePost);
                     var courseUq = new CourseUnique(schoolUqPair.Value, scheduleAcf.CourseCode);
