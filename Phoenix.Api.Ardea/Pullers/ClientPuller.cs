@@ -102,6 +102,7 @@ namespace Phoenix.Api.Ardea.Pullers
                                 int p = parents[0] is null ? 1 : 0;
                                 studentAcf.DependenceOrder = parents[p]!.Children
                                     .Select(c => c.DependenceOrder)
+                                    .DefaultIfEmpty(0)
                                     .Max() + 1;
                             }
                             else
