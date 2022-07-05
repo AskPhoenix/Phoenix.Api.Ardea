@@ -145,7 +145,7 @@ namespace Phoenix.Api.Ardea.Pullers
                     catch (Exception ex)
                     {
                         _logger.LogError(ex.Message);
-                        _logger.LogInformation("Skipping post...");
+                        _logger.LogWarning("Skipping post...");
                         continue;
                     }
                 }

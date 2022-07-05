@@ -36,75 +36,84 @@ namespace Phoenix.Api.Ardea.Pullers
 
             foreach (var schoolUqPair in SchoolUqsDict)
             {
-                var posts = await this.GetPostsForSchoolAsync(schoolUqPair.Value);
-
-                _logger.LogInformation("{CoursesNumber} courses found for School \"{SchoolUq}\".", 
-                    posts.Count(), schoolUqPair.Value);
-
-                foreach (var coursePost in posts)
+                try
                 {
-                    var courseAcf = await WPClientWrapper.GetCourseAcfAsync(coursePost);
-                    var courseUq = courseAcf.GetCourseUnique(schoolUqPair.Value);
-                    var course = await _courseRepository.FindUniqueAsync(courseUq);
+                    var posts = await this.GetPostsForSchoolAsync(schoolUqPair.Value);
 
-                    var booksToCreate = new List<Book>();
-                    var booksExisting = new List<Book>();
+                    _logger.LogInformation("{CoursesNumber} courses found for School \"{SchoolUq}\".",
+                        posts.Count(), schoolUqPair.Value);
 
-                    if (Verbose)
+                    foreach (var coursePost in posts)
                     {
-                        _logger.LogInformation("Synchronizing books for course \"{CourseUq}\".", courseUq);
-                        _logger.LogInformation("{BooksNumber} books found.", courseAcf.Books.Count);
-                    }
+                        var courseAcf = await WPClientWrapper.GetCourseAcfAsync(coursePost);
+                        var courseUq = courseAcf.GetCourseUnique(schoolUqPair.Value);
+                        var course = await _courseRepository.FindUniqueAsync(courseUq);
 
-                    foreach (var bookAcf in courseAcf.Books)
-                    {
-                        var book = await _bookRepository.FindUniqueAsync(bookAcf.Name);
-                        if (book is null)
+                        var booksToCreate = new List<Book>();
+                        var booksExisting = new List<Book>();
+
+                        if (Verbose)
+                        {
+                            _logger.LogInformation("Synchronizing books for course \"{CourseUq}\".", courseUq);
+                            _logger.LogInformation("{BooksNumber} books found.", courseAcf.Books.Count);
+                        }
+
+                        foreach (var bookAcf in courseAcf.Books)
+                        {
+                            var book = await _bookRepository.FindUniqueAsync(bookAcf.Name);
+                            if (book is null)
+                            {
+                                if (Verbose)
+                                    _logger.LogInformation("Book \"{BookName}\" to be created.", bookAcf.Name);
+
+                                booksToCreate.Add(bookAcf);
+                            }
+                            else
+                            {
+                                if (Verbose)
+                                    _logger.LogInformation("Book \"{BookName}\" already exists.", bookAcf.Name);
+
+                                booksExisting.Add(book);
+                            }
+                        }
+
+                        var booksCreated = new List<Book>();
+                        if (booksToCreate.Any())
+                        {
+                            _logger.LogInformation("Creating {ToCreateNum} books...", booksToCreate.Count);
+                            booksCreated = (await _bookRepository.CreateRangeAsync(booksToCreate)).ToList();
+                            _logger.LogInformation("{CreatedNum}/{ToCreateNum} books created successfully.",
+                                booksCreated.Count(), booksToCreate.Count);
+                        }
+                        else
+                            _logger.LogInformation("No books to create.");
+
+                        var booksFinal = booksCreated.Concat(booksExisting);
+                        PulledBookIds.AddRange(booksFinal.Select(b => b.Id).ToList());
+
+                        if (course is null)
                         {
                             if (Verbose)
-                                _logger.LogInformation("Book \"{BookName}\" to be created.", bookAcf.Name);
+                                _logger.LogInformation("Course {CourseUq} to be created.", courseUq);
 
-                            booksToCreate.Add(bookAcf);
+                            course = courseAcf.ToCourse(schoolUqPair.Key, booksFinal);
+                            toCreate.Add(course);
                         }
                         else
                         {
                             if (Verbose)
-                                _logger.LogInformation("Book \"{BookName}\" already exists.", bookAcf.Name);
+                                _logger.LogInformation("Course {CourseUq} to be updated.", courseUq);
 
-                            booksExisting.Add(book);
+                            courseAcf.ToCourse(course, schoolUqPair.Key, booksFinal);
+                            toUpdate.Add(course);
                         }
                     }
-
-                    var booksCreated = new List<Book>();
-                    if (booksToCreate.Any())
-                    {
-                        _logger.LogInformation("Creating {ToCreateNum} books...", booksToCreate.Count);
-                        booksCreated = (await _bookRepository.CreateRangeAsync(booksToCreate)).ToList();
-                        _logger.LogInformation("{CreatedNum}/{ToCreateNum} books created successfully.",
-                            booksCreated.Count(), booksToCreate.Count);
-                    }
-                    else
-                        _logger.LogInformation("No books to create.");
-
-                    var booksFinal = booksCreated.Concat(booksExisting);
-                    PulledBookIds.AddRange(booksFinal.Select(b => b.Id).ToList());
-
-                    if (course is null)
-                    {
-                        if (Verbose)
-                            _logger.LogInformation("Course {CourseUq} to be created.", courseUq);
-
-                        course = courseAcf.ToCourse(schoolUqPair.Key, booksFinal);
-                        toCreate.Add(course);
-                    }
-                    else
-                    {
-                        if (Verbose)
-                            _logger.LogInformation("Course {CourseUq} to be updated.", courseUq);
-
-                        courseAcf.ToCourse(course, schoolUqPair.Key, booksFinal);
-                        toUpdate.Add(course);
-                    }
+                }
+                catch(Exception ex)
+                {
+                    _logger.LogError(ex.Message);
+                    _logger.LogWarning("Skipping post...");
+                    continue;
                 }
             }
 

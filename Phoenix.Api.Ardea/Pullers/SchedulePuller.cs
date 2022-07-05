@@ -43,73 +43,82 @@ namespace Phoenix.Api.Ardea.Pullers
 
             foreach (var schoolUqPair in SchoolUqsDict)
             {
-                var posts = await this.GetPostsForSchoolAsync(schoolUqPair.Value);
-
-                _logger.LogInformation("{SchedulesNumber} Schedules found for School \"{SchoolUq}\".",
-                    posts.Count(), schoolUqPair.Value);
-
-                foreach (var schedulePost in posts)
+                try
                 {
-                    var scheduleAcf = await WPClientWrapper.GetScheduleAcfAsync(schedulePost);
-                    var courseUq = new CourseUnique(schoolUqPair.Value, scheduleAcf.CourseCode);
-                    var courseIdUq = CourseUqsDict.SingleOrDefault(id_uq => id_uq.Value.Equals(courseUq));
+                    var posts = await this.GetPostsForSchoolAsync(schoolUqPair.Value);
 
-                    if (courseIdUq.Equals(default))
+                    _logger.LogInformation("{SchedulesNumber} Schedules found for School \"{SchoolUq}\".",
+                        posts.Count(), schoolUqPair.Value);
+
+                    foreach (var schedulePost in posts)
                     {
-                        _logger.LogError("There is no course with code {CourseCode}.", courseUq.Code);
-                        _logger.LogError("Schedule {SchedulePostTitle} is skipped.", schedulePost.GetTitle());
+                        var scheduleAcf = await WPClientWrapper.GetScheduleAcfAsync(schedulePost);
+                        var courseUq = new CourseUnique(schoolUqPair.Value, scheduleAcf.CourseCode);
+                        var courseIdUq = CourseUqsDict.SingleOrDefault(id_uq => id_uq.Value.Equals(courseUq));
 
-                        continue;
-                    }
+                        if (courseIdUq.Equals(default))
+                        {
+                            _logger.LogError("There is no course with code {CourseCode}.", courseUq.Code);
+                            _logger.LogError("Schedule {SchedulePostTitle} is skipped.", schedulePost.GetTitle());
 
-                    bool hasClassroom = scheduleAcf.Classroom is not null;
-                    Classroom? classroom = null;
-                    if (hasClassroom)
-                    {
-                        classroom = await _classroomRepository.FindUniqueAsync(schoolUqPair.Key, scheduleAcf.ClassroomName!);
+                            continue;
+                        }
 
-                        if (classroom is null)
+                        bool hasClassroom = scheduleAcf.Classroom is not null;
+                        Classroom? classroom = null;
+                        if (hasClassroom)
+                        {
+                            classroom = await _classroomRepository.FindUniqueAsync(schoolUqPair.Key, scheduleAcf.ClassroomName!);
+
+                            if (classroom is null)
+                            {
+                                if (Verbose)
+                                    _logger.LogInformation("Creating Classroom \"{ClassroomName}\"...", scheduleAcf.ClassroomName);
+
+                                classroom = scheduleAcf.Classroom;
+                                classroom!.SchoolId = schoolUqPair.Key;
+
+                                classroom = await _classroomRepository.CreateAsync(classroom);
+
+                                classroomsCreated.Add(classroom);
+
+                                _logger.LogInformation("Classroom \"{ClassroomName}\" created successfully.", scheduleAcf.ClassroomName);
+                            }
+                            else
+                            {
+                                if (Verbose)
+                                    _logger.LogInformation("Classroom \"{ClassroomName}\" already exists.", classroom.Name);
+
+                                classroomsExisting.Add(classroom);
+                            }
+                        }
+
+                        var schedule = await this._scheduleRepository.FindUniqueAsync(courseIdUq.Key, scheduleAcf);
+                        if (schedule is null)
                         {
                             if (Verbose)
-                                _logger.LogInformation("Creating Classroom \"{ClassroomName}\"...", scheduleAcf.ClassroomName);
+                                _logger.LogInformation("Schedule for course \"{CourseUq}\" on {Day} at {Time} to be created.",
+                                    courseUq, scheduleAcf.DayString, scheduleAcf.StartTime.ToString("HH:mm"));
 
-                            classroom = scheduleAcf.Classroom;
-                            classroom!.SchoolId = schoolUqPair.Key;
-
-                            classroom = await _classroomRepository.CreateAsync(classroom);
-
-                            classroomsCreated.Add(classroom);
-
-                            _logger.LogInformation("Classroom \"{ClassroomName}\" created successfully.", scheduleAcf.ClassroomName);
+                            schedule = scheduleAcf.ToSchedule(courseIdUq.Key, classroom?.Id);
+                            toCreate.Add(schedule);
                         }
                         else
                         {
                             if (Verbose)
-                                _logger.LogInformation("Classroom \"{ClassroomName}\" already exists.", classroom.Name);
+                                _logger.LogInformation("Schedule for course \"{CourseUq}\" on {Day} at {Time} to be updated.",
+                                    courseUq, scheduleAcf.DayString, scheduleAcf.StartTime.ToString("HH:mm"));
 
-                            classroomsExisting.Add(classroom);
+                            scheduleAcf.ToSchedule(schedule, courseIdUq.Key, classroom?.Id);
+                            toUpdate.Add(schedule);
                         }
                     }
-
-                    var schedule = await this._scheduleRepository.FindUniqueAsync(courseIdUq.Key, scheduleAcf);
-                    if (schedule is null)
-                    {
-                        if (Verbose)
-                            _logger.LogInformation("Schedule for course \"{CourseUq}\" on {Day} at {Time} to be created.",
-                                courseUq, scheduleAcf.DayString, scheduleAcf.StartTime.ToString("HH:mm"));
-
-                        schedule = scheduleAcf.ToSchedule(courseIdUq.Key, classroom?.Id);
-                        toCreate.Add(schedule);
-                    }
-                    else
-                    {
-                        if (Verbose)
-                            _logger.LogInformation("Schedule for course \"{CourseUq}\" on {Day} at {Time} to be updated.",
-                                courseUq, scheduleAcf.DayString, scheduleAcf.StartTime.ToString("HH:mm"));
-
-                        scheduleAcf.ToSchedule(schedule, courseIdUq.Key, classroom?.Id);
-                        toUpdate.Add(schedule);
-                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex.Message);
+                    _logger.LogWarning("Skipping post...");
+                    continue;
                 }
             }
 

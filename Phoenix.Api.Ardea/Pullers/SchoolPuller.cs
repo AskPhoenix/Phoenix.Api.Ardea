@@ -42,24 +42,33 @@ namespace Phoenix.Api.Ardea.Pullers
 
             foreach (var schoolPost in schoolPosts)
             {
-                var schoolAcf = await WPClientWrapper.GetSchoolAcfAsync(schoolPost);
-                var schoolUq = schoolAcf.GetSchoolUnique();
-                var school = await _schoolRepository.FindUniqueAsync(schoolAcf);
-
-                if (school is null)
+                try
                 {
-                    if (Verbose)
-                        _logger.LogInformation("School \"{SchoolUq}\" to be created.", schoolUq.ToString());
+                    var schoolAcf = await WPClientWrapper.GetSchoolAcfAsync(schoolPost);
+                    var schoolUq = schoolAcf.GetSchoolUnique();
+                    var school = await _schoolRepository.FindUniqueAsync(schoolAcf);
 
-                    school = schoolAcf.ToSchool();
-                    toCreate.Add(school);
+                    if (school is null)
+                    {
+                        if (Verbose)
+                            _logger.LogInformation("School \"{SchoolUq}\" to be created.", schoolUq.ToString());
+
+                        school = schoolAcf.ToSchool();
+                        toCreate.Add(school);
+                    }
+                    else
+                    {
+                        if (Verbose)
+                            _logger.LogInformation("School \"{SchoolUq}\" to be updated.", schoolUq.ToString());
+
+                        toUpdate.Add(schoolAcf.ToSchool(school));
+                    }
                 }
-                else
+                catch(Exception ex)
                 {
-                    if (Verbose)
-                        _logger.LogInformation("School \"{SchoolUq}\" to be updated.", schoolUq.ToString());
-
-                    toUpdate.Add(schoolAcf.ToSchool(school));
+                    _logger.LogError(ex.Message);
+                    _logger.LogWarning("Skipping post...");
+                    continue;
                 }
             }
 

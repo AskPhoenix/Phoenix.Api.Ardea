@@ -31,30 +31,39 @@ namespace Phoenix.Api.Ardea.Pullers
 
             foreach (var schoolUqPair in SchoolUqsDict)
             {
-                var posts = await this.GetPostsForSchoolAsync(schoolUqPair.Value);
-
-                _logger.LogInformation("{PersonnelNumber} Staff members found for School \"{SchoolUq}\".",
-                    posts.Count(), schoolUqPair.Value);
-
-                var school = await _schoolRepository.FindUniqueAsync(schoolUqPair.Value);
-
-                foreach (var personnelPost in posts)
+                try
                 {
-                    var personnelAcf = await WPClientWrapper.GetPersonnelAcfAsync(personnelPost);
+                    var posts = await this.GetPostsForSchoolAsync(schoolUqPair.Value);
 
-                    var appUser = await _appUserManager.FindByPhoneNumberAsync(personnelAcf.PhoneString);
-                    appUser = await this.PutAppUserAsync(appUser, personnelAcf, schoolUqPair.Value);
-                    if (appUser is null)
-                        continue;
+                    _logger.LogInformation("{PersonnelNumber} Staff members found for School \"{SchoolUq}\".",
+                        posts.Count(), schoolUqPair.Value);
 
-                    var user = await this._userRepository.FindPrimaryAsync(appUser.Id);
-                    user = await this.PutUserAsync(user, personnelAcf, appUser.Id);
+                    var school = await _schoolRepository.FindUniqueAsync(schoolUqPair.Value);
 
-                    await this.PutUserToRoleAsync(appUser, personnelAcf.Role);
-                    await this.PutUserToSchoolAsync(user, school!);
-                    await this.PutUserToCoursesAsync(user, personnelAcf, school!);
+                    foreach (var personnelPost in posts)
+                    {
+                        var personnelAcf = await WPClientWrapper.GetPersonnelAcfAsync(personnelPost);
 
-                    PulledIds.Add(appUser.Id);
+                        var appUser = await _appUserManager.FindByPhoneNumberAsync(personnelAcf.PhoneString);
+                        appUser = await this.PutAppUserAsync(appUser, personnelAcf, schoolUqPair.Value);
+                        if (appUser is null)
+                            continue;
+
+                        var user = await this._userRepository.FindPrimaryAsync(appUser.Id);
+                        user = await this.PutUserAsync(user, personnelAcf, appUser.Id);
+
+                        await this.PutUserToRoleAsync(appUser, personnelAcf.Role);
+                        await this.PutUserToSchoolAsync(user, school!);
+                        await this.PutUserToCoursesAsync(user, personnelAcf, school!);
+
+                        PulledIds.Add(appUser.Id);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex.Message);
+                    _logger.LogWarning("Skipping post...");
+                    continue;
                 }
             }
 
