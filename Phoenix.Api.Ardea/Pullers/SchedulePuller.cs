@@ -256,7 +256,7 @@ namespace Phoenix.Api.Ardea.Pullers
 
             var days = Enumerable
                 .Range(0, 1 + course.LastDate.Date.Subtract(course.FirstDate.Date).Days)
-                .Select(i => new DateTimeOffset(course.FirstDate.Date.AddDays(i)))
+                .Select(i => course.FirstDate.Date.AddDays(i))
                 .Where(d => d.DayOfWeek == schedule.DayOfWeek);
 
             var lecturesToCreate = new List<Lecture>(days.Count());
@@ -264,8 +264,11 @@ namespace Phoenix.Api.Ardea.Pullers
             
             foreach (var day in days)
             {
-                var start = TimeZoneInfo.ConvertTime(day.Add(schedule.StartTime.TimeOfDay), zone);
-                var end = TimeZoneInfo.ConvertTime(day.Add(schedule.EndTime.TimeOfDay), zone);
+                var s = day.Add(schedule.StartTime.TimeOfDay);
+                var e = day.Add(schedule.EndTime.TimeOfDay);
+
+                var start = new DateTimeOffset(s, zone.GetUtcOffset(s));
+                var end = new DateTimeOffset(e, zone.GetUtcOffset(e));
 
                 var lecture = await _lectureRepository.FindUniqueAsync(course.Id, start);
                 
