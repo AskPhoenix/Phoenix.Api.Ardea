@@ -1,5 +1,6 @@
 ﻿using Phoenix.DataHandle.DataEntry;
-using Phoenix.DataHandle.DataEntry.Models.Uniques;
+using Phoenix.DataHandle.DataEntry.Types;
+using Phoenix.DataHandle.DataEntry.Types.Uniques;
 using Phoenix.DataHandle.Main.Models;
 using Phoenix.DataHandle.Repositories;
 
@@ -165,7 +166,8 @@ namespace Phoenix.Api.Ardea.Pullers
                 return school.Courses;
             }
 
-            return ObviatedIds = await ObviateAllPerSchoolAsync(findCoursesForSchool, _courseRepository, toKeep);
+            return ObviatedIds = await ObviateAllPerSchoolAsync(
+                findCoursesForSchool, _courseRepository, toKeep);
         }
     }
 }

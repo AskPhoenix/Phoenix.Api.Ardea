@@ -1,5 +1,6 @@
 ﻿using Phoenix.DataHandle.DataEntry;
-using Phoenix.DataHandle.DataEntry.Models.Uniques;
+using Phoenix.DataHandle.DataEntry.Types;
+using Phoenix.DataHandle.DataEntry.Types.Uniques;
 using Phoenix.DataHandle.Main.Models;
 using Phoenix.DataHandle.Main.Models.Extensions;
 using Phoenix.DataHandle.Repositories;
@@ -98,7 +99,8 @@ namespace Phoenix.Api.Ardea.Pullers
                     obviableTypeNamePlural.ToLower(), schoolUqPair.Value);
 
                 var toObviate = findObviables(schoolUqPair.Key)
-                    .Where(c => !toKeepIds.Contains(c.Id))
+                    .Where(o => !toKeepIds.Contains(o.Id))
+                    .Where(o => !o.IsObviated)
                     .ToList();
                 
                 allObviatedIds.AddRange(await ObviateGroupAsync(toObviate, repository));

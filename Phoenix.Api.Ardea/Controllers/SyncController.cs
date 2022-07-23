@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Phoenix.Api.Ardea.Pullers;
 using Phoenix.DataHandle.DataEntry;
-using Phoenix.DataHandle.DataEntry.Models.Uniques;
+using Phoenix.DataHandle.DataEntry.Types.Uniques;
 using Phoenix.DataHandle.Identity;
 using Phoenix.DataHandle.Main.Models;
 using Phoenix.DataHandle.Repositories;

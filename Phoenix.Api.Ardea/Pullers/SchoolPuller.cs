@@ -1,7 +1,9 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Phoenix.DataHandle.DataEntry;
-using Phoenix.DataHandle.DataEntry.Models.Uniques;
+using Phoenix.DataHandle.DataEntry.Types;
+using Phoenix.DataHandle.DataEntry.Types.Uniques;
 using Phoenix.DataHandle.Main.Models;
+using Phoenix.DataHandle.Main.Models.Extensions;
 using WordPressPCL.Models;
 
 namespace Phoenix.Api.Ardea.Pullers
@@ -113,6 +115,7 @@ namespace Phoenix.Api.Ardea.Pullers
 
             var toObviate = await _schoolRepository.Find()
                 .Where(s => !toKeep.Contains(s.Id))
+                .Where(s => (s as IObviableModelEntity).IsObviated)
                 .ToListAsync();
 
             ObviatedIds = await ObviateGroupAsync(toObviate, _schoolRepository);

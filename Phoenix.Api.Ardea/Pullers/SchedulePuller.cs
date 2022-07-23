@@ -1,6 +1,8 @@
 ﻿using Phoenix.DataHandle.DataEntry;
-using Phoenix.DataHandle.DataEntry.Models.Uniques;
+using Phoenix.DataHandle.DataEntry.Types;
+using Phoenix.DataHandle.DataEntry.Types.Uniques;
 using Phoenix.DataHandle.Main.Models;
+using Phoenix.DataHandle.Main.Models.Extensions;
 using Phoenix.DataHandle.Main.Types;
 using Phoenix.DataHandle.Repositories;
 
@@ -186,6 +188,7 @@ namespace Phoenix.Api.Ardea.Pullers
 
                     var toObviate = course.Schedules
                         .Where(s => !toKeep.Contains(s.Id))
+                        .Where(s => !(s as IObviableModelEntity).IsObviated)
                         .ToList();
 
                     ObviatedIds.AddRange(await ObviateGroupAsync(toObviate, _scheduleRepository));
@@ -211,6 +214,7 @@ namespace Phoenix.Api.Ardea.Pullers
                 
                 var classroomsToObviate = school!.Classrooms
                     .Where(c => !classroomsToKeep.Contains(c.Id))
+                    .Where(c => !(c as IObviableModelEntity).IsObviated)
                     .ToList();
 
                 if (!classroomsToObviate.Any())
@@ -339,6 +343,7 @@ namespace Phoenix.Api.Ardea.Pullers
                     .SelectMany(c => c.Lectures)
                     .Where(l => !lecturesToKeep.Contains(l.Id))
                     .Where(l => l.Occasion == LectureOccasion.Scheduled)
+                    .Where(l => !(l as IObviableModelEntity).IsObviated)
                     .ToList();
 
                 if (!lecturesToObviate.Any())
