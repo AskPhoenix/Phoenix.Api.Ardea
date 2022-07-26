@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Phoenix.Api.Ardea.Pullers;
 using Phoenix.DataHandle.DataEntry;
 using Phoenix.DataHandle.DataEntry.Types.Uniques;
@@ -9,6 +10,7 @@ using Swashbuckle.AspNetCore.Annotations;
 
 namespace Phoenix.Api.Ardea.Controllers
 {
+    [Authorize(AuthenticationSchemes = "Bearer")]
     [ApiController]
     [Route("api/[controller]")]
     public class SyncController : ControllerBase
