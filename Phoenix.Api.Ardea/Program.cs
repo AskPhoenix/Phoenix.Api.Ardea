@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using Phoenix.DataHandle.Api;
 using Phoenix.DataHandle.Identity;
 using Phoenix.DataHandle.Main.Models;
 using System.Text;
@@ -80,8 +79,6 @@ builder.Services.AddSwaggerGen(o =>
     {
         { jwtSecurityScheme, Array.Empty<string>() }
     });
-
-    o.SchemaFilter<SwaggerExcludeFilter>();
 });
 
 // Configure Logging
