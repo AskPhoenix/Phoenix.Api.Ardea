@@ -154,7 +154,13 @@ namespace Phoenix.Api.Ardea.Pullers
 
             var pulledSchedules = created.Concat(updated);
             foreach (var schedule in pulledSchedules)
+            {
                 PulledLectureIds.AddRange(await this.PutLecturesForScheduleAsync(schedule));
+
+                // TODO: Check if translates to SQL
+                var lecturesToObviate = schedule.Lectures.Where(l => !PulledLectureIds.Contains(l.Id));
+                await _lectureRepository.ObviateRangeAsync(lecturesToObviate);
+            }
 
             _logger.LogInformation("Schedules & Classrooms synchronization finished.");
             _logger.LogInformation("-----------------------------------------------------------------");
@@ -247,60 +253,9 @@ namespace Phoenix.Api.Ardea.Pullers
 
         private async Task<List<int>> PutLecturesForScheduleAsync(Schedule schedule)
         {
-            if (schedule is null)
-                throw new ArgumentNullException(nameof(schedule));
-
-            var course = schedule.Course;
-            var school = course.School;
-            var zone = TimeZoneInfo.FindSystemTimeZoneById(school.SchoolSetting.TimeZone);
-
-            _logger.LogInformation("Generating lectures for course \"{CourseUq}\" on {Day} at {Time}...",
-                new CourseUnique(new(school.Code), course.Code), schedule.DayOfWeek,
-                schedule.StartTime.ToString("HH:mm"));
-
-            var days = Enumerable
-                .Range(0, 1 + course.LastDate.Date.Subtract(course.FirstDate.Date).Days)
-                .Select(i => course.FirstDate.Date.AddDays(i))
-                .Where(d => d.DayOfWeek == schedule.DayOfWeek);
-
-            var lecturesToCreate = new List<Lecture>(days.Count());
-            var lecturesToUpdate = new List<Lecture>(days.Count());
-            
-            foreach (var day in days)
-            {
-                var s = day.Add(schedule.StartTime.TimeOfDay);
-                var e = day.Add(schedule.EndTime.TimeOfDay);
-
-                var start = new DateTimeOffset(s, zone.GetUtcOffset(s));
-                var end = new DateTimeOffset(e, zone.GetUtcOffset(e));
-
-                var lecture = await _lectureRepository.FindUniqueAsync(course.Id, start);
-                
-                if (lecture is null)
-                {
-                    lecture = new()
-                    {
-                        CourseId = course.Id,
-                        ClassroomId = schedule.ClassroomId,
-                        ScheduleId = schedule.Id,
-                        StartDateTime = start,
-                        EndDateTime = end,
-                        Occasion = LectureOccasion.Scheduled
-                    };
-
-                    lecturesToCreate.Add(lecture);
-                }
-                else
-                {
-                    if (lecture.Occasion == LectureOccasion.Scheduled)
-                    {
-                        lecture.ClassroomId = schedule.ClassroomId;
-                        lecture.EndDateTime = end;
-
-                        lecturesToUpdate.Add(lecture);
-                    }
-                }
-            }
+            var lecturesTuple = await EntryHelper.GenerateLecturesAsync(schedule, _lectureRepository);
+            var lecturesToCreate = lecturesTuple.Item1;
+            var lecturesToUpdate = lecturesTuple.Item2;
 
             var lecturesCreated = new List<Lecture>();
             if (lecturesToCreate.Any())
