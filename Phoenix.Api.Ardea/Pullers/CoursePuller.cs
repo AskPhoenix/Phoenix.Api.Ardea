@@ -61,7 +61,7 @@ namespace Phoenix.Api.Ardea.Pullers
 
                         foreach (var bookAcf in courseAcf.Books)
                         {
-                            var book = await _bookRepository.FindUniqueAsync(bookAcf.Name);
+                            var book = await _bookRepository.FindUniqueAsync(schoolUqPair.Key, bookAcf.Name);
                             if (book is null)
                             {
                                 if (Verbose)
