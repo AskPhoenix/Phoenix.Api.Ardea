@@ -44,6 +44,7 @@ builder.Services.AddApplicationInsightsTelemetry(
 
 builder.Services.AddControllers();
 builder.Services.AddHttpsRedirection(options => options.HttpsPort = 443);
+builder.Services.AddRouting(o => o.LowercaseUrls = true);
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(o => 
@@ -104,8 +105,13 @@ else
 
 // Configure the HTTP request pipeline.
 // if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
-app.UseSwagger();
-app.UseSwaggerUI(o => o.SwaggerEndpoint("/swagger/v3/swagger.json", "Ardea v3"));
+app.UseSwagger(o => o.RouteTemplate = "doc/{documentname}/swagger.json");
+app.UseSwaggerUI(
+    o =>
+    {
+        o.SwaggerEndpoint("/doc/v3/swagger.json", "Pavo v3");
+        o.RoutePrefix = "doc";
+    });
 
 app.UseHttpsRedirection();
 
