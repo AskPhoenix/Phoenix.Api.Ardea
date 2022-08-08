@@ -5,6 +5,7 @@ using Microsoft.OpenApi.Models;
 using Phoenix.DataHandle.Identity;
 using Phoenix.DataHandle.Main.Models;
 using System.Text;
+using static Phoenix.DataHandle.Api.DocumentationHelper;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -59,26 +60,11 @@ builder.Services.AddSwaggerGen(o =>
         Version = "3.0"
     });
 
-    var jwtSecurityScheme = new OpenApiSecurityScheme
-    {
-        Scheme = "bearer",
-        BearerFormat = "JWT",
-        Description = "Enter the JWT Bearer token.",
-        In = ParameterLocation.Header,
-        Name = "JWT Authentication",
-        Type = SecuritySchemeType.Http,
-
-        Reference = new OpenApiReference
-        {
-            Id = JwtBearerDefaults.AuthenticationScheme,
-            Type = ReferenceType.SecurityScheme
-        }
-    };
-    o.AddSecurityDefinition(jwtSecurityScheme.Reference.Id, jwtSecurityScheme);
+    o.AddSecurityDefinition(JWTSecurityScheme.Reference.Id, JWTSecurityScheme);
 
     o.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
-        { jwtSecurityScheme, Array.Empty<string>() }
+        { JWTSecurityScheme, Array.Empty<string>() }
     });
 });
 
