@@ -121,7 +121,7 @@ namespace Phoenix.Api.Ardea.Pullers
 
             var toObviate = await _schoolRepository.Find()
                 .Where(s => !toKeep.Contains(s.Id))
-                .Where(s => (s as IObviableModelEntity).IsObviated)
+                .Where(s => !s.ObviatedAt.HasValue)
                 .ToListAsync();
 
             ObviatedIds = await ObviateGroupAsync(toObviate, _schoolRepository);

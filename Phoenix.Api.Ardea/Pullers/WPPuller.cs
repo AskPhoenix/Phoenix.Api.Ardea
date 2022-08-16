@@ -100,7 +100,7 @@ namespace Phoenix.Api.Ardea.Pullers
 
                 var toObviate = findObviables(schoolUqPair.Key)
                     .Where(o => !toKeepIds.Contains(o.Id))
-                    .Where(o => !o.IsObviated)
+                    .Where(o => !o.ObviatedAt.HasValue)
                     .ToList();
                 
                 allObviatedIds.AddRange(await ObviateGroupAsync(toObviate, repository));

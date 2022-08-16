@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Identity;
 using Phoenix.DataHandle.DataEntry;
+using Phoenix.DataHandle.DataEntry.Models;
 using Phoenix.DataHandle.DataEntry.Types;
 using Phoenix.DataHandle.DataEntry.Types.Uniques;
 using Phoenix.DataHandle.Identity;
@@ -42,6 +43,7 @@ namespace Phoenix.Api.Ardea.Pullers
                         posts.Count(), schoolUqPair.Value);
 
                     var school = (await _schoolRepository.FindUniqueAsync(schoolUqPair.Value))!;
+                    var phoneCountryCode = school.SchoolSetting.PhoneCountryCode;
 
                     foreach (var personnelPost in posts)
                     {
@@ -52,9 +54,12 @@ namespace Phoenix.Api.Ardea.Pullers
                             continue;
                         }
 
-                        var appUser = await _appUserManager.FindByPhoneNumberAsync(personnelAcf.PhoneString);
+                        var phone = UserAcf.PrependPhoneCountryCode(
+                            personnelAcf.PhoneString, phoneCountryCode);
+
+                        var appUser = await _appUserManager.FindByPhoneNumberAsync(phone);
                         appUser = await this.PutAppUserAsync(appUser, personnelAcf, schoolUqPair.Value,
-                            school.SchoolSetting.PhoneCountryCode);
+                            phoneCountryCode);
 
                         if (appUser is null)
                             continue;

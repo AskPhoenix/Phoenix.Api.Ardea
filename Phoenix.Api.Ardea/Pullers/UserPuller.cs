@@ -41,22 +41,6 @@ namespace Phoenix.Api.Ardea.Pullers
             _userRepository.Include(u => u.Courses);
         }
 
-        private string? PrependPhoneCountryCode(string? phone, string phoneCountryCode)
-        {
-            if (string.IsNullOrEmpty(phone))
-                return null;
-
-            string trimmedPhone = phone.Trim('0', '+');
-
-            if (trimmedPhone.StartsWith(phoneCountryCode.Trim('0', '+')))
-                return "+" + trimmedPhone;
-
-            if (!phone.Equals(trimmedPhone))
-                return phone;
-
-            return phoneCountryCode + phone;
-        }
-
         protected async Task<ApplicationUser?> PutAppUserAsync(ApplicationUser? appUser, UserAcf userAcf,
             SchoolUnique schoolUq, string phoneCountryCode)
         {
@@ -66,9 +50,10 @@ namespace Phoenix.Api.Ardea.Pullers
             else
                 phone = userAcf.PhoneString;
 
-            phone = this.PrependPhoneCountryCode(phone, phoneCountryCode);
+            if (!string.IsNullOrEmpty(phone))
+                phone = UserAcf.PrependPhoneCountryCode(phone, phoneCountryCode);
 
-            var username = userAcf.GenerateUserName(schoolUq);
+            var username = userAcf.GenerateUserName(schoolUq, phoneCountryCode);
 
             if (appUser is null)
             {

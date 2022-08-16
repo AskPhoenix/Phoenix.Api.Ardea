@@ -65,7 +65,10 @@ namespace Phoenix.Api.Ardea.Pullers
                             if (parentAcf is null)
                                 continue;
 
-                            var appParent = await _appUserManager.FindByPhoneNumberAsync(parentAcf.PhoneString);
+                            var parentPhone = UserAcf.PrependPhoneCountryCode(
+                                parentAcf.PhoneString, phoneCountryCode);
+
+                            var appParent = await _appUserManager.FindByPhoneNumberAsync(parentPhone);
                             appParent = await this.PutAppUserAsync(appParent, parentAcf, schoolUqPair.Value,
                                 phoneCountryCode);
 
@@ -91,7 +94,10 @@ namespace Phoenix.Api.Ardea.Pullers
 
                         if (studentAcf.IsSelfDetermined)
                         {
-                            appStudent = await _appUserManager.FindByPhoneNumberAsync(studentAcf.PhoneString);
+                            var studentPhone = UserAcf.PrependPhoneCountryCode(
+                                studentAcf.PhoneString, phoneCountryCode);
+
+                            appStudent = await _appUserManager.FindByPhoneNumberAsync(studentPhone);
                             appStudent = await this.PutAppUserAsync(appStudent, studentAcf, schoolUqPair.Value,
                                 phoneCountryCode);
 
