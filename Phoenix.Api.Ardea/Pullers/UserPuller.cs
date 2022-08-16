@@ -42,13 +42,16 @@ namespace Phoenix.Api.Ardea.Pullers
         }
 
         protected async Task<ApplicationUser?> PutAppUserAsync(ApplicationUser? appUser, UserAcf userAcf,
-            SchoolUnique schoolUq)
+            SchoolUnique schoolUq, string phoneCountryCode)
         {
             string? phone;
             if (userAcf.Role == RoleRank.Student)
                 phone = ((ClientAcf)userAcf).StudentPhoneString;
             else
                 phone = userAcf.PhoneString;
+
+            if (!string.IsNullOrEmpty(phone) && !phone.StartsWith('+'))
+                phone = phoneCountryCode + phone;
 
             var username = userAcf.GenerateUserName(schoolUq);
 
@@ -63,8 +66,11 @@ namespace Phoenix.Api.Ardea.Pullers
                 await _appStore.SetUserNameAsync(appUser, username);
                 await _appStore.SetNormalizedUserNameAsync(appUser, ApplicationUser.NormFunc(username));
 
-                await _appStore.SetPhoneNumberAsync(appUser, phone);
-                await _appStore.SetPhoneNumberConfirmedAsync(appUser, false);
+                if (!string.IsNullOrEmpty(phone))
+                {
+                    await _appStore.SetPhoneNumberAsync(appUser, phone);
+                    await _appStore.SetPhoneNumberConfirmedAsync(appUser, false);
+                }
 
                 var identityRes = await _appUserManager.CreateAsync(appUser);
                 if (identityRes.Succeeded)

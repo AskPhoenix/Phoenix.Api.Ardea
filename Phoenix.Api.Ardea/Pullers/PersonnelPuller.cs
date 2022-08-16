@@ -41,7 +41,7 @@ namespace Phoenix.Api.Ardea.Pullers
                     _logger.LogInformation("{PersonnelNumber} Staff members found for School \"{SchoolUq}\".",
                         posts.Count(), schoolUqPair.Value);
 
-                    var school = await _schoolRepository.FindUniqueAsync(schoolUqPair.Value);
+                    var school = (await _schoolRepository.FindUniqueAsync(schoolUqPair.Value))!;
 
                     foreach (var personnelPost in posts)
                     {
@@ -53,7 +53,9 @@ namespace Phoenix.Api.Ardea.Pullers
                         }
 
                         var appUser = await _appUserManager.FindByPhoneNumberAsync(personnelAcf.PhoneString);
-                        appUser = await this.PutAppUserAsync(appUser, personnelAcf, schoolUqPair.Value);
+                        appUser = await this.PutAppUserAsync(appUser, personnelAcf, schoolUqPair.Value,
+                            school.SchoolSetting.PhoneCountryCode);
+
                         if (appUser is null)
                             continue;
 
@@ -61,15 +63,15 @@ namespace Phoenix.Api.Ardea.Pullers
                         user = await this.PutUserAsync(user, personnelAcf, appUser.Id);
 
                         await this.PutUserToRoleAsync(appUser, personnelAcf.Role);
-                        await this.PutUserToSchoolAsync(user, school!);
-                        await this.PutUserToCoursesAsync(user, personnelAcf, school!);
+                        await this.PutUserToSchoolAsync(user, school);
+                        await this.PutUserToCoursesAsync(user, personnelAcf, school);
 
                         PulledIds.Add(appUser.Id);
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex.Message);
+                    _logger.LogError("{Msg}", ex.Message);
                     _logger.LogWarning("Skipping post...");
                     continue;
                 }

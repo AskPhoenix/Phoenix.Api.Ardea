@@ -39,7 +39,8 @@ namespace Phoenix.Api.Ardea.Pullers
                 _logger.LogInformation("{ClientsNumber} Clients found for School \"{SchoolUq}\".",
                     posts.Count(), schoolUqPair.Value);
 
-                var school = await _schoolRepository.FindUniqueAsync(schoolUqPair.Value);
+                var school = (await _schoolRepository.FindUniqueAsync(schoolUqPair.Value))!;
+                var phoneCountryCode = school.SchoolSetting.PhoneCountryCode;
 
                 foreach (var clientPost in posts)
                 {
@@ -65,7 +66,9 @@ namespace Phoenix.Api.Ardea.Pullers
                                 continue;
 
                             var appParent = await _appUserManager.FindByPhoneNumberAsync(parentAcf.PhoneString);
-                            appParent = await this.PutAppUserAsync(appParent, parentAcf, schoolUqPair.Value);
+                            appParent = await this.PutAppUserAsync(appParent, parentAcf, schoolUqPair.Value,
+                                phoneCountryCode);
+
                             if (appParent is null)
                                 continue;
 
@@ -73,7 +76,7 @@ namespace Phoenix.Api.Ardea.Pullers
                             parent = await this.PutUserAsync(parent, parentAcf, appParent.Id);
 
                             await this.PutUserToRoleAsync(appParent, parentAcf.Role);
-                            await this.PutUserToSchoolAsync(parent, school!);
+                            await this.PutUserToSchoolAsync(parent, school);
                             // Parents shall not enroll to any courses.
 
                             PulledIds.Add(appParent.Id);
@@ -89,7 +92,9 @@ namespace Phoenix.Api.Ardea.Pullers
                         if (studentAcf.IsSelfDetermined)
                         {
                             appStudent = await _appUserManager.FindByPhoneNumberAsync(studentAcf.PhoneString);
-                            appStudent = await this.PutAppUserAsync(appStudent, studentAcf, schoolUqPair.Value);
+                            appStudent = await this.PutAppUserAsync(appStudent, studentAcf, schoolUqPair.Value,
+                                phoneCountryCode);
+
                             if (appStudent is null)
                                 continue;
 
@@ -122,7 +127,9 @@ namespace Phoenix.Api.Ardea.Pullers
                             if (student is not null)
                                 appStudent = await _appUserManager.FindByIdAsync(student.AspNetUserId.ToString());
 
-                            appStudent = await this.PutAppUserAsync(appStudent, studentAcf, schoolUqPair.Value);
+                            appStudent = await this.PutAppUserAsync(appStudent, studentAcf, schoolUqPair.Value,
+                                phoneCountryCode);
+
                             if (appStudent is null)
                                 continue;
                         }
@@ -130,8 +137,8 @@ namespace Phoenix.Api.Ardea.Pullers
                         student = await this.PutUserAsync(student, studentAcf, appStudent.Id);
 
                         await this.PutUserToRoleAsync(appStudent, studentAcf.Role);
-                        await this.PutUserToSchoolAsync(student, school!);
-                        await this.PutUserToCoursesAsync(student, studentAcf, school!);
+                        await this.PutUserToSchoolAsync(student, school);
+                        await this.PutUserToCoursesAsync(student, studentAcf, school);
 
                         PulledIds.Add(appStudent.Id);
 
@@ -154,7 +161,7 @@ namespace Phoenix.Api.Ardea.Pullers
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex.Message);
+                        _logger.LogError("{Msg}", ex.Message);
                         _logger.LogWarning("Skipping post...");
                         continue;
                     }
