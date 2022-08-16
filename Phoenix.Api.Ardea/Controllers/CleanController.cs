@@ -21,6 +21,7 @@ namespace Phoenix.Api.Ardea.Controllers
         private readonly ClassroomRepository _classroomRepository;
         private readonly LectureRepository _lectureRepository;
         private readonly UserRepository _userRepository;
+        private readonly OneTimeCodeRepository _otcRepository;
 
         private const string MSG200 = "Data deletion finished with no problems.";
 
@@ -38,27 +39,28 @@ namespace Phoenix.Api.Ardea.Controllers
             _classroomRepository = new(phoenixContext);
             _lectureRepository = new(phoenixContext);
             _userRepository = new(phoenixContext);
+            _otcRepository = new(phoenixContext);
         }
 
         [HttpDelete]
         [SwaggerOperation(Summary = "Clean (delete) all obviated data.")]
         [SwaggerResponse(StatusCodes.Status200OK, MSG200)]
-        public async Task<IActionResult> DeleteObviatedForSchoolAsync()
+        public async Task<IActionResult> DeleteObviatedForSchoolAsync(int days_obviated = 30)
         {
             _logger.LogInformation("Deleting obviated Schools...");
-            await _schoolRepository.DeleteAllObviatedAsync();
+            await _schoolRepository.DeleteAllObviatedAsync(days_obviated);
 
             _logger.LogInformation("Deleting obviated Courses...");
-            await _courseRepository.DeleteAllObviatedAsync();
+            await _courseRepository.DeleteAllObviatedAsync(days_obviated);
 
             _logger.LogInformation("Deleting obviated Schedules...");
-            await _scheduleRepository.DeleteAllObviatedAsync();
+            await _scheduleRepository.DeleteAllObviatedAsync(days_obviated);
 
             _logger.LogInformation("Deleting obviated Classrooms...");
-            await _classroomRepository.DeleteAllObviatedAsync();
+            await _classroomRepository.DeleteAllObviatedAsync(days_obviated);
 
             _logger.LogInformation("Deleting obviated Lectures...");
-            await _lectureRepository.DeleteAllObviatedAsync();
+            await _lectureRepository.DeleteAllObviatedAsync(days_obviated);
 
             _logger.LogInformation("Deleting obviated Users...");
             var obviatedUsers = _userRepository.Find()
@@ -74,7 +76,11 @@ namespace Phoenix.Api.Ardea.Controllers
                 await _appUserManager.DeleteAsync(obviatedAppUser);
             }
 
-            await _userRepository.DeleteAllObviatedAsync(daysObviated: 5);
+            await _userRepository.DeleteAllObviatedAsync(days_obviated);
+
+            _logger.LogInformation("Deleting expired OTCs...");
+            var expiredOtcs = _otcRepository.Find().Where(otc => otc.ExpiresAt < DateTime.UtcNow);
+            await _otcRepository.DeleteRangeAsync(expiredOtcs);
 
             return Ok();
         }
