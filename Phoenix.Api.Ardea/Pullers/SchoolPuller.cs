@@ -47,6 +47,12 @@ namespace Phoenix.Api.Ardea.Pullers
                 try
                 {
                     var schoolAcf = await WPClientWrapper.GetSchoolAcfAsync(schoolPost);
+                    if (schoolAcf is null)
+                    {
+                        _logger.LogError("No ACF found for post {Title}", schoolPost.GetTitle());
+                        continue;
+                    }
+
                     var schoolUq = schoolAcf.GetSchoolUnique();
                     var school = await _schoolRepository.FindUniqueAsync(schoolAcf);
 

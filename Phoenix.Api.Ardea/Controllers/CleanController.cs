@@ -74,7 +74,7 @@ namespace Phoenix.Api.Ardea.Controllers
                 await _appUserManager.DeleteAsync(obviatedAppUser);
             }
 
-            await _userRepository.DeleteAllObviatedAsync();
+            await _userRepository.DeleteAllObviatedAsync(daysObviated: 5);
 
             return Ok();
         }

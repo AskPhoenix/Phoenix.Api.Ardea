@@ -59,6 +59,12 @@ namespace Phoenix.Api.Ardea.Pullers
                     foreach (var schedulePost in posts)
                     {
                         var scheduleAcf = await WPClientWrapper.GetScheduleAcfAsync(schedulePost);
+                        if (scheduleAcf is null)
+                        {
+                            _logger.LogError("No ACF found for post {Title}", schedulePost.GetTitle());
+                            continue;
+                        }
+
                         var courseUq = new CourseUnique(schoolUqPair.Value, scheduleAcf.CourseCode);
                         var courseIdUq = CourseUqsDict.SingleOrDefault(id_uq => id_uq.Value.Equals(courseUq));
 

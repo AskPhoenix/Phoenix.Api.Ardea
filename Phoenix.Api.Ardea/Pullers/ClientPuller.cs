@@ -1,4 +1,5 @@
-﻿using Phoenix.DataHandle.DataEntry;
+﻿using Microsoft.AspNetCore.Identity;
+using Phoenix.DataHandle.DataEntry;
 using Phoenix.DataHandle.DataEntry.Models;
 using Phoenix.DataHandle.DataEntry.Types;
 using Phoenix.DataHandle.DataEntry.Types.Uniques;
@@ -18,10 +19,11 @@ namespace Phoenix.Api.Ardea.Pullers
             Dictionary<int, SchoolUnique> schoolUqsDict,
             Dictionary<int, CourseUnique> courseUqsDict,
             ApplicationUserManager appUserManager,
+            IUserStore<ApplicationUser> appStore,
             PhoenixContext phoenixContext,
             ILogger logger,
             bool verbose = true)
-            : base(schoolUqsDict, courseUqsDict, appUserManager, phoenixContext, logger, verbose)
+            : base(schoolUqsDict, courseUqsDict, appUserManager, appStore, phoenixContext, logger, verbose)
         {
         }
 
@@ -44,6 +46,12 @@ namespace Phoenix.Api.Ardea.Pullers
                     try
                     {
                         var studentAcf = await WPClientWrapper.GetClientAcfAsync(clientPost);
+                        if (studentAcf is null)
+                        {
+                            _logger.LogError("No ACF found for post {Title}", clientPost.GetTitle());
+                            continue;
+                        }
+
                         var parentsAcf = new ClientAcf?[2] { studentAcf.Parent1, studentAcf.Parent2 };
 
                         var appParents = new ApplicationUser?[2];

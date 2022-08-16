@@ -47,34 +47,42 @@ namespace Phoenix.Api.Ardea.Pullers
                     foreach (var coursePost in posts)
                     {
                         var courseAcf = await WPClientWrapper.GetCourseAcfAsync(coursePost);
+                        if (courseAcf is null)
+                        {
+                            _logger.LogError("No ACF found for post {Title}", coursePost.GetTitle());
+                            continue;
+                        }
+
                         var courseUq = courseAcf.GetCourseUnique(schoolUqPair.Value);
                         var course = await _courseRepository.FindUniqueAsync(courseUq);
 
                         var booksToCreate = new List<Book>();
                         var booksExisting = new List<Book>();
 
+                        var books = courseAcf.GetBooks(schoolUqPair.Key);
+
                         if (Verbose)
                         {
                             _logger.LogInformation("Synchronizing books for course \"{CourseUq}\".", courseUq);
-                            _logger.LogInformation("{BooksNumber} books found.", courseAcf.Books.Count);
+                            _logger.LogInformation("{BooksNumber} books found.", books.Count);
                         }
 
-                        foreach (var bookAcf in courseAcf.Books)
+                        foreach (var book in books)
                         {
-                            var book = await _bookRepository.FindUniqueAsync(schoolUqPair.Key, bookAcf.Name);
-                            if (book is null)
+                            var book1 = await _bookRepository.FindUniqueAsync(schoolUqPair.Key, book.Name);
+                            if (book1 is null)
                             {
                                 if (Verbose)
-                                    _logger.LogInformation("Book \"{BookName}\" to be created.", bookAcf.Name);
+                                    _logger.LogInformation("Book \"{BookName}\" to be created.", book.Name);
 
-                                booksToCreate.Add(bookAcf);
+                                booksToCreate.Add(book);
                             }
                             else
                             {
                                 if (Verbose)
-                                    _logger.LogInformation("Book \"{BookName}\" already exists.", bookAcf.Name);
+                                    _logger.LogInformation("Book \"{BookName}\" already exists.", book.Name);
 
-                                booksExisting.Add(book);
+                                booksExisting.Add(book1);
                             }
                         }
 

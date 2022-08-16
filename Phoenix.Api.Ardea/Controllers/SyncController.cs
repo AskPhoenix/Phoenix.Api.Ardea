@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Phoenix.Api.Ardea.Pullers;
 using Phoenix.DataHandle.DataEntry;
@@ -18,6 +19,7 @@ namespace Phoenix.Api.Ardea.Controllers
         private readonly ILogger<SyncController> _logger;
         private readonly PhoenixContext _phoenixContext;
         private readonly ApplicationUserManager _appUserManager;
+        private readonly ApplicationStore _appStore;
         private readonly IConfiguration _configuration;
         private readonly SchoolRepository _schoolRepository;
 
@@ -32,11 +34,13 @@ namespace Phoenix.Api.Ardea.Controllers
             ILogger<SyncController> logger,
             PhoenixContext phoenixContext,
             ApplicationUserManager appUserManager,
+            IUserStore<ApplicationUser> appStore,
             IConfiguration configuration)
         {
             _logger = logger;
             _phoenixContext = phoenixContext;
             _appUserManager = appUserManager;
+            _appStore = (ApplicationStore)appStore;
             _configuration = configuration;
             _schoolRepository = new(phoenixContext);
             
@@ -201,7 +205,8 @@ namespace Phoenix.Api.Ardea.Controllers
                 var dict = await this.PutInitAsync(code);
 
                 PersonnelPuller personnelPuller = new(dict.Item1, dict.Item2,
-                    _appUserManager, _configuration["BackendDefPass"], _phoenixContext, _logger, _verbose);
+                    _appUserManager, _appStore, _phoenixContext, _logger, _verbose,
+                    _configuration["BackendDefPass"]);
                 await personnelPuller.PutAsync();
             }
             catch (ArgumentException ex)
@@ -231,7 +236,7 @@ namespace Phoenix.Api.Ardea.Controllers
                 var dict = await this.PutInitAsync(code);
 
                 ClientPuller clientPuller = new(dict.Item1, dict.Item2,
-                    _appUserManager, _phoenixContext, _logger, _verbose);
+                    _appUserManager, _appStore, _phoenixContext, _logger, _verbose);
                 await clientPuller.PutAsync();
             }
             catch (ArgumentException ex)
@@ -276,11 +281,12 @@ namespace Phoenix.Api.Ardea.Controllers
                 await schedulePuller.PutAsync();
 
                 PersonnelPuller personnelPuller = new(schoolUqsDict, courseUqsDict,
-                    _appUserManager, _configuration["BackendDefPass"], _phoenixContext, _logger, _verbose);
+                    _appUserManager, _appStore, _phoenixContext, _logger, _verbose,
+                    _configuration["BackendDefPass"]);
                 await personnelPuller.PutAsync();
 
                 ClientPuller clientPuller = new(schoolUqsDict, courseUqsDict,
-                    _appUserManager, _phoenixContext, _logger, _verbose);
+                    _appUserManager, _appStore, _phoenixContext, _logger, _verbose);
                 await clientPuller.PutAsync();
 
                 return Ok();

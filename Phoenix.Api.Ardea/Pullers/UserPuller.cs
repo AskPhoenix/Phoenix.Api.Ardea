@@ -1,4 +1,5 @@
-﻿using Phoenix.DataHandle.DataEntry.Models;
+﻿using Microsoft.AspNetCore.Identity;
+using Phoenix.DataHandle.DataEntry.Models;
 using Phoenix.DataHandle.DataEntry.Types.Uniques;
 using Phoenix.DataHandle.Identity;
 using Phoenix.DataHandle.Main.Models;
@@ -13,6 +14,7 @@ namespace Phoenix.Api.Ardea.Pullers
         protected readonly CourseRepository _courseRepository;
 
         protected readonly ApplicationUserManager _appUserManager;
+        protected readonly ApplicationStore _appStore;
 
         private string? BackendDefPass { get; }
 
@@ -20,21 +22,11 @@ namespace Phoenix.Api.Ardea.Pullers
             Dictionary<int, SchoolUnique> schoolUqsDict,
             Dictionary<int, CourseUnique> courseUqsDict,
             ApplicationUserManager appUserManager,
+            IUserStore<ApplicationUser> appStore,
             PhoenixContext phoenixContext,
             ILogger logger,
-            bool verbose = true)
-            : this(schoolUqsDict, courseUqsDict, appUserManager, null, phoenixContext, logger, verbose)
-        {
-        }
-
-        public UserPuller(
-            Dictionary<int, SchoolUnique> schoolUqsDict,
-            Dictionary<int, CourseUnique> courseUqsDict,
-            ApplicationUserManager appUserManager,
-            string? backendDefPass,
-            PhoenixContext phoenixContext,
-            ILogger logger,
-            bool verbose = true)
+            bool verbose = true,
+            string? backendDefPass = null)
             : base(schoolUqsDict, courseUqsDict, phoenixContext, logger, verbose)
         {
             this.BackendDefPass = backendDefPass;
@@ -43,12 +35,14 @@ namespace Phoenix.Api.Ardea.Pullers
             _courseRepository = new(phoenixContext);
 
             _appUserManager = appUserManager;
+            _appStore = (ApplicationStore)appStore;
 
             _userRepository.Include(u => u.Schools);
             _userRepository.Include(u => u.Courses);
         }
 
-        protected async Task<ApplicationUser?> PutAppUserAsync(ApplicationUser? appUser, UserAcf userAcf, SchoolUnique schoolUq)
+        protected async Task<ApplicationUser?> PutAppUserAsync(ApplicationUser? appUser, UserAcf userAcf,
+            SchoolUnique schoolUq)
         {
             string? phone;
             if (userAcf.Role == RoleRank.Student)
@@ -56,18 +50,21 @@ namespace Phoenix.Api.Ardea.Pullers
             else
                 phone = userAcf.PhoneString;
 
+            var username = userAcf.GenerateUserName(schoolUq);
+
             if (appUser is null)
             {
                 if (Verbose)
                     _logger.LogInformation("Creating Application User with phone number \"{UserPhone}\"...",
                         userAcf.PhoneString);
 
-                appUser = new ApplicationUser()
-                {
-                    PhoneNumber = phone,
-                    PhoneNumberConfirmed = false,
-                    UserName = userAcf.GenerateUserName(schoolUq)
-                }.Normalize();
+                appUser = Activator.CreateInstance<ApplicationUser>();
+
+                await _appStore.SetUserNameAsync(appUser, username);
+                await _appStore.SetNormalizedUserNameAsync(appUser, ApplicationUser.NormFunc(username));
+
+                await _appStore.SetPhoneNumberAsync(appUser, phone);
+                await _appStore.SetPhoneNumberConfirmedAsync(appUser, false);
 
                 var identityRes = await _appUserManager.CreateAsync(appUser);
                 if (identityRes.Succeeded)
@@ -93,9 +90,11 @@ namespace Phoenix.Api.Ardea.Pullers
                     _logger.LogInformation("Updating Application User with phone number \"{UserPhone}\"...",
                         userAcf.PhoneString);
 
-                appUser.PhoneNumber = phone; // Applies only for students that became self-determined
-                appUser.UserName = userAcf.GenerateUserName(schoolUq);
-                appUser.Normalize();
+                await _appStore.SetUserNameAsync(appUser, username);
+                await _appStore.SetNormalizedUserNameAsync(appUser, ApplicationUser.NormFunc(username));
+
+                // Applies only to students who became self-determined
+                await _appStore.SetPhoneNumberAsync(appUser, phone);
 
                 var identityRes = await _appUserManager.UpdateAsync(appUser);
                 if (identityRes.Succeeded)

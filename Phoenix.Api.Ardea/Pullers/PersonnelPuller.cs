@@ -1,4 +1,5 @@
-﻿using Phoenix.DataHandle.DataEntry;
+﻿using Microsoft.AspNetCore.Identity;
+using Phoenix.DataHandle.DataEntry;
 using Phoenix.DataHandle.DataEntry.Types;
 using Phoenix.DataHandle.DataEntry.Types.Uniques;
 using Phoenix.DataHandle.Identity;
@@ -17,11 +18,12 @@ namespace Phoenix.Api.Ardea.Pullers
             Dictionary<int, SchoolUnique> schoolUqsDict,
             Dictionary<int, CourseUnique> courseUqsDict,
             ApplicationUserManager appUserManager,
-            string backendDefPass,
+            IUserStore<ApplicationUser> appStore,
             PhoenixContext phoenixContext,
             ILogger logger,
-            bool verbose = true)
-            : base(schoolUqsDict, courseUqsDict, appUserManager, backendDefPass, phoenixContext, logger, verbose)
+            bool verbose = true,
+            string? backendDefPass = null)
+            : base(schoolUqsDict, courseUqsDict, appUserManager, appStore, phoenixContext, logger, verbose, backendDefPass)
         {
         }
 
@@ -44,6 +46,11 @@ namespace Phoenix.Api.Ardea.Pullers
                     foreach (var personnelPost in posts)
                     {
                         var personnelAcf = await WPClientWrapper.GetPersonnelAcfAsync(personnelPost);
+                        if (personnelAcf is null)
+                        {
+                            _logger.LogError("No ACF found for post {Title}", personnelPost.GetTitle());
+                            continue;
+                        }
 
                         var appUser = await _appUserManager.FindByPhoneNumberAsync(personnelAcf.PhoneString);
                         appUser = await this.PutAppUserAsync(appUser, personnelAcf, schoolUqPair.Value);
