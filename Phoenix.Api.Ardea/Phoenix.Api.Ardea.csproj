@@ -2,20 +2,21 @@
 
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
+	<ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Version>3.0.0-beta1.0</Version>
+    <Version>3.0.0</Version>
     <Authors>AskPhoenix</Authors>
+	<Company>AskPhoenix</Company>
     <Description>A REST API to pull the schools' data from the WordPress administrative WebApp and sync it with PhoenixDB.</Description>
     <Copyright>AskPhoenix 2022</Copyright>
     <PackageProjectUrl>https://www.askphoenix.gr/</PackageProjectUrl>
     <RepositoryUrl>https://github.com/AskPhoenix/Phoenix.Api.Ardea</RepositoryUrl>
   </PropertyGroup>
 
-	<ItemGroup>
-	  <_WebToolingArtifacts Remove="Properties\PublishProfiles\Ardea.Production.pubxml" />
-	  <_WebToolingArtifacts Remove="Properties\PublishProfiles\Ardea.Staging.pubxml" />
-	</ItemGroup>
+  <ItemGroup>
+    <_WebToolingArtifacts Remove="Properties\PublishProfiles\Ardea.Production.pubxml" />
+    <_WebToolingArtifacts Remove="Properties\PublishProfiles\Ardea.Staging.pubxml" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore" Version="2.21.*" />
@@ -23,7 +24,7 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="6.0.*" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Proxies" Version="6.0.*" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="6.0.*" />
-    <PackageReference Include="Phoenix.DataHandle" Version="3.0.0-beta1.*" />
+    <PackageReference Include="Phoenix.DataHandle" Version="3.0.*" />
     <PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="6.4.*" />
     <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="6.4.*" />
   </ItemGroup>
