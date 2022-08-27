@@ -1,132 +1,181 @@
-﻿using Phoenix.DataHandle.Main.Models;
+﻿using Phoenix.DataHandle.DataEntry;
+using Phoenix.DataHandle.DataEntry.Types;
+using Phoenix.DataHandle.DataEntry.Types.Uniques;
+using Phoenix.DataHandle.Main.Models;
 using Phoenix.DataHandle.Repositories;
-using Phoenix.DataHandle.WordPress;
-using Phoenix.DataHandle.WordPress.Models;
-using Phoenix.DataHandle.WordPress.Models.Uniques;
-using Phoenix.DataHandle.WordPress.Wrappers;
-using WordPressPCL.Models;
 
 namespace Phoenix.Api.Ardea.Pullers
 {
     public class CoursePuller : WPPuller<Course>
     {
-        private readonly CourseRepository courseRepository;
-        private readonly BookRepository bookRepository;
-        private readonly SchoolRepository schoolRepository;
+        private readonly CourseRepository _courseRepository;
+        private readonly BookRepository _bookRepository;
+        public List<int> PulledBookIds { get; set; } = new();
 
-        private readonly Dictionary<int, string> schoolTimezonesDict;
+        public override PostCategory PostCategory => PostCategory.Course;
 
-        public List<int> PulledBookIds { get; private set; }
-
-        public CoursePuller(Dictionary<int, SchoolUnique> schoolUqsDict, 
-            PhoenixContext phoenixContext, ILogger logger, bool verbose = true) 
-            : base(schoolUqsDict, logger, verbose)
+        public CoursePuller(
+            Dictionary<int, SchoolUnique> schoolUqsDict,
+            PhoenixContext phoenixContext,
+            ILogger logger,
+            bool verbose = true)
+            : base(schoolUqsDict, phoenixContext, logger, verbose)
         {
-            this.courseRepository = new(phoenixContext);
-            this.bookRepository = new(phoenixContext);
-            this.schoolRepository = new(phoenixContext);
+            _courseRepository = new(phoenixContext);
+            _bookRepository = new(phoenixContext);
 
-            this.schoolTimezonesDict = FindSchoolTimezones(phoenixContext, schoolUqsDict.Keys);
-
-            this.PulledBookIds = new List<int>();
+            _courseRepository.Include(c => c.Books);
         }
-
-        public override int CategoryId => PostCategoryWrapper.GetCategoryId(PostCategory.Course);
 
         public override async Task<List<int>> PullAsync()
         {
-            Logger.LogInformation("-----------------------------------------------------------------");
-            Logger.LogInformation("Courses & Books synchronization started");
+            _logger.LogInformation("-----------------------------------------------------------------");
+            _logger.LogInformation("Courses & Books synchronization started.");
 
-            IEnumerable<Post> coursePosts = await WordPressClientWrapper.GetPostsAsync(CategoryId);
-            IEnumerable<Post> filteredPosts;
+            var toCreate = new List<Course>();
+            var toUpdate = new List<Course>();
 
             foreach (var schoolUqPair in SchoolUqsDict)
             {
-                filteredPosts = coursePosts.FilterPostsForSchool(schoolUqPair.Value);
-                
-                Logger.LogInformation("{CoursesNumber} courses found for School \"{SchoolUq}\"", 
-                    filteredPosts.Count(), schoolUqPair.Value.ToString());
-
-                foreach (var coursePost in filteredPosts)
+                try
                 {
-                    var courseAcf = (CourseACF)(await WordPressClientWrapper.GetAcfAsync<CourseACF>(coursePost.Id)).WithTitleCase();
-                    courseAcf.SchoolUnique = schoolUqPair.Value;
-                    courseAcf.SchoolTimeZone = schoolTimezonesDict[schoolUqPair.Key];
+                    var posts = await this.GetPostsForSchoolAsync(schoolUqPair.Value);
 
-                    // TODO: Create property of type CourseUnique in CourseACF
-                    var courseUq = new CourseUnique(courseAcf.SchoolUnique, courseAcf.Code);
+                    _logger.LogInformation("{CoursesNumber} courses found for School \"{SchoolUq}\".",
+                        posts.Count(), schoolUqPair.Value);
 
-                    var course = await courseRepository.Find(courseAcf.MatchesUnique);
-                    if (course is null)
+                    foreach (var coursePost in posts)
                     {
+                        var courseAcf = await WPClientWrapper.GetCourseAcfAsync(coursePost);
+                        if (courseAcf is null)
+                        {
+                            _logger.LogError("No ACF found for post {Title}", coursePost.GetTitle());
+                            continue;
+                        }
+
+                        var courseUq = courseAcf.GetCourseUnique(schoolUqPair.Value);
+                        var course = await _courseRepository.FindUniqueAsync(courseUq);
+
+                        var booksToCreate = new List<Book>();
+                        var booksExisting = new List<Book>();
+
+                        var books = courseAcf.GetBooks(schoolUqPair.Key);
+
                         if (Verbose)
-                            Logger.LogInformation("Adding course with code {CourseCode}", courseUq.Code);
+                        {
+                            _logger.LogInformation("Synchronizing books for course \"{CourseUq}\".", courseUq);
+                            _logger.LogInformation("{BooksNumber} books found.", books.Count);
+                        }
 
-                        course = courseAcf.ToContext();
-                        course.SchoolId = schoolUqPair.Key;
+                        foreach (var book in books)
+                        {
+                            var book1 = await _bookRepository.FindUniqueAsync(schoolUqPair.Key, book.Name);
+                            if (book1 is null)
+                            {
+                                if (Verbose)
+                                    _logger.LogInformation("Book \"{BookName}\" to be created.", book.Name);
 
-                        courseRepository.Create(course);
-                    }
-                    else
-                    {
-                        if (Verbose)
-                            Logger.LogInformation("Updating course with code {CourseCode}", courseUq.Code);
-                        courseRepository.Update(course, courseAcf.ToContext());
-                        courseRepository.Restore(course);
-                    }
+                                booksToCreate.Add(book);
+                            }
+                            else
+                            {
+                                if (Verbose)
+                                    _logger.LogInformation("Book \"{BookName}\" already exists.", book.Name);
 
-                    CourseUqsDict.Add(course.Id, courseUq);
+                                booksExisting.Add(book1);
+                            }
+                        }
 
-                    if (Verbose)
-                        Logger.LogInformation("Synchronizing books for course with code {CourseCode}", courseUq.Code);
+                        var booksCreated = new List<Book>();
+                        if (booksToCreate.Any())
+                        {
+                            _logger.LogInformation("Creating {ToCreateNum} books...", booksToCreate.Count);
+                            booksCreated = (await _bookRepository.CreateRangeAsync(booksToCreate)).ToList();
+                            _logger.LogInformation("{CreatedNum}/{ToCreateNum} books created successfully.",
+                                booksCreated.Count(), booksToCreate.Count);
+                        }
+                        else
+                            _logger.LogInformation("No books to create.");
 
-                    var booksToLink = courseAcf.ExtractBooks();
-                    var bookIdsToLink = new int[booksToLink.Count()];
+                        var booksFinal = booksCreated.Concat(booksExisting);
+                        PulledBookIds.AddRange(booksFinal.Select(b => b.Id).ToList());
 
-                    int b = 0;
-                    foreach (var book in booksToLink)
-                    {
-                        Book ctxBook = await bookRepository.Find(b => b.NormalizedName == book.NormalizedName);
-                        if (ctxBook is null)
+                        if (course is null)
                         {
                             if (Verbose)
-                                Logger.LogInformation("Adding book: {BookName}", book.Name);
-                            bookRepository.Create(book);
-                            ctxBook = book;
+                                _logger.LogInformation("Course {CourseUq} to be created.", courseUq);
+
+                            course = courseAcf.ToCourse(schoolUqPair.Key, booksFinal);
+                            toCreate.Add(course);
                         }
                         else
                         {
                             if (Verbose)
-                                Logger.LogInformation("Book \"{BookName}\" already exists", book.Name);
-                            
-                            //ctxBook.Publisher = book.Publisher;
-                            //ctxBook.Info = book.Info;
-                            //bookRepository.Update(ctxBook);
+                                _logger.LogInformation("Course {CourseUq} to be updated.", courseUq);
+
+                            courseAcf.ToCourse(course, schoolUqPair.Key, booksFinal);
+                            toUpdate.Add(course);
                         }
-
-                        bookIdsToLink[b++] = ctxBook.Id;
-                        PulledBookIds.Add(ctxBook.Id);
                     }
-
-                    if (Verbose)
-                        Logger.LogInformation("Linking books with course with code {CourseCode}", courseUq.Code);
-                    courseRepository.LinkBooks(course, bookIdsToLink, deleteAdditionalLinks: true);
+                }
+                catch(Exception ex)
+                {
+                    _logger.LogError(ex.Message);
+                    _logger.LogWarning("Skipping post...");
+                    continue;
                 }
             }
 
-            Logger.LogInformation("Courses & Books synchronization finished");
-            Logger.LogInformation("-----------------------------------------------------------------");
+            var created = new List<Course>();
+            if (toCreate.Any())
+            {
+                _logger.LogInformation("Creating {ToCreateNum} courses...", toCreate.Count);
+                created = (await _courseRepository.CreateRangeAsync(toCreate)).ToList();
+                _logger.LogInformation("{CreatedNum}/{ToCreateNum} courses created successfully.",
+                    created.Count(), toCreate.Count);
+            }
+            else
+                _logger.LogInformation("No courses to create.");
+
+            var updated = new List<Course>();
+            if (toUpdate.Any())
+            {
+                _logger.LogInformation("Updating {ToUpdateNum} courses...", toUpdate.Count);
+                updated = (await _courseRepository.UpdateRangeAsync(toUpdate)).ToList();
+                await _courseRepository.RestoreRangeAsync(toUpdate);
+                _logger.LogInformation("{UpdatedNum}/{ToUpdateNum} courses updated successfully.",
+                    updated.Count(), toUpdate.Count);
+            }
+            else
+                _logger.LogInformation("No courses to updated.");
+
+            _logger.LogInformation("Courses & Books synchronization finished.");
+            _logger.LogInformation("-----------------------------------------------------------------");
+
+            foreach (var course in created.Concat(updated))
+                CourseUqsDict.Add(course.Id, new CourseUnique(new SchoolUnique(course.School.Code), course.Code));
 
             PulledBookIds = PulledBookIds.Distinct().ToList();
-            return PulledIds = CourseUqsDict.Keys.ToList();
+            PulledIds.AddRange(CourseUqsDict.Keys);
+            
+            return PulledIds;
         }
 
         public override async Task<List<int>> ObviateAsync(List<int> toKeep)
         {
             // Books are never obviated
 
-            return ObviatedIds = await ObviateAllPerSchoolAsync(schoolRepository.FindCourses, courseRepository, toKeep);
+            IEnumerable<Course> findCoursesForSchool(int schoolId)
+            {
+                var school = Task.Run(() => _schoolRepository.FindPrimaryAsync(schoolId)).Result;
+                if (school is null)
+                    return Enumerable.Empty<Course>();
+
+                return school.Courses;
+            }
+
+            return ObviatedIds = await ObviateAllPerSchoolAsync(
+                findCoursesForSchool, _courseRepository, toKeep);
         }
     }
 }
